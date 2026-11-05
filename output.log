@@ -1,0 +1,9 @@
+Found 6 jobs
+                    id    site  ... vacancy_count work_from_home_type
+0  in-287f3ee4ca93e42f  indeed  ...          None                None
+1  in-a1e4072c0029305f  indeed  ...          None                None
+2  in-b3d2c67498272df9  indeed  ...          None                None
+3  in-2266e3805da0a0f5  indeed  ...          None                None
+4  in-cd31d22465d74eb4  indeed  ...          None                None
+
+[5 rows x 34 columns]

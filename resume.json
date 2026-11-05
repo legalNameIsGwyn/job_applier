@@ -1,0 +1,81 @@
+{
+  "name": "Gwyn Dollente",
+  "contact": {
+    "email": "dollentegwyn@gmail.com",
+    "phone": "1-757-324-0347",
+    "location": "Norfolk, VA"
+  },
+  "summary": "BS Computer Science (Saint Louis University) graduate with experience as Associate Software Engineer at Accenture and Junior Full Stack Engineer at MGM Blendwell. Seeking entry-level IT roles prioritizing engineering positions.",
+  "skills": [
+    "Java",
+    "Python",
+    "C#",
+    "Springboot",
+    "PHP",
+    "Laravel",
+    "MySQL",
+    "JavaScript",
+    "Node.js",
+    "Bash scripting",
+    "COBOL",
+    "HTML5",
+    "CSS",
+    "DBeaver",
+    "Eloquent ORM",
+    "Jira",
+    "Git",
+    "REST API Development",
+    "QGIS",
+    "VLANs",
+    "Network Design",
+    "Linux"
+  ],
+  "education": [
+    {
+      "degree": "Bachelor of Science in Computer Science - Cum Laude",
+      "school": "Saint Louis University",
+      "years": "2020-2024"
+    }
+  ],
+  "experience": [
+    {
+      "role": "Associate Software Engineer",
+      "company": "Accenture",
+      "years": "03/2025 - 03/2026",
+      "description": "Tested and provided production support using Java, Python, Bash, COBOL. Trained in Java Backend, Springboot, Manual & Automated Testing."
+    },
+    {
+      "role": "Junior Full Stack Software Engineer",
+      "company": "MGM Blendwell Corp.",
+      "years": "03/2026 - 08/2026",
+      "description": "Maintained and built internal tools using PHP, Laravel, MySQL, JavaScript. Developed Overtime, Employee Loans, Absence & Tardiness systems."
+    }
+  ],
+  "projects": [
+    {
+      "name": "Pine Tree Health QGIS Plugin",
+      "description": "QGIS plugin classifying pine tree health using YoLo V8, V3, F-RCNN, SSD (thesis)",
+      "skills": ["QGIS", "Computer Vision", "Python"]
+    },
+    {
+      "name": "LLM Chat Bot",
+      "description": "Baguio City chatbot demo with Python RAG pipeline and chat history",
+      "skills": ["LangChain", "RAG", "Python"]
+    },
+    {
+      "name": "Examination Website",
+      "description": "Teacher exam creation platform using Node.js, Express.js backend with QA role",
+      "skills": ["Node.js", "Express", "JavaScript", "QA"]
+    },
+    {
+      "name": "University Network Design",
+      "description": "Tree topology VLAN network design using Cisco Packet Tracer",
+      "skills": ["Network Design", "VLANs", "Cisco Packet Tracer"]
+    },
+    {
+      "name": "Hotel Reservation Web App",
+      "description": "Reservation system with QR check-in/out handling",
+      "skills": ["Node.js", "Express", "JavaScript", "HTML5", "MySQL", "WAMP"]
+    }
+  ]
+}
