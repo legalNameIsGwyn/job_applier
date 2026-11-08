@@ -157,6 +157,30 @@ Around 50+ ratings makes the result much steadier.
 
 ---
 
+## Applying (`apply_jobs.py`)
+
+Fills applications in a visible browser window and **stops before Submit**. You review and send each one.
+
+```powershell
+pip install playwright
+playwright install chromium          # one time
+
+python apply_jobs.py --list          # which top jobs can be filled, and which can't and why
+python apply_jobs.py --top 3         # fill the 3 best
+python apply_jobs.py --set-url "<job url>" "<employer application url>"
+```
+
+- **Sites:** Greenhouse, Lever and Ashby. Workday, LinkedIn and Indeed are listed as off switches in
+  `config\apply_settings.py` and print a notice; their fillers aren't built yet.
+- **Which link:** it uses the employer's link (`apply_url`) when the scrape captured one, otherwise the job
+  link if that is itself a Greenhouse / Lever / Ashby page. Jobs already in your database from before this
+  feature have no `apply_url`; use `--set-url` or re-scrape.
+- **Answers:** rules in `config\answers.py` (filled from `resume.json`), then answers you typed before,
+  then long "why us?" questions drafted by the local model, then it asks you in the terminal and remembers.
+  Gender, race, veteran and disability questions are answered "decline" by default.
+- **Never filled for you:** legal attestations and consent checkboxes; they're listed under "NEEDS YOUR ATTENTION".
+- **Afterwards** it asks `a` (I submitted it), `s` (skip for good) or Enter (not yet), and records that.
+
 ## How it works
 
 ### Filters (`filters.py`)
@@ -212,10 +236,15 @@ from `resume.json`, so the resume can't contain invented experience. Further saf
 | `db.py` | SQLite schema, migrations and saving |
 | `show_jobs.py` | View top or bottom jobs |
 | `application_maker.py` | Tailored resume and cover letter generation |
+| `apply_jobs.py` | Opens applications in a browser and fills them in (never submits) |
+| `form_filler.py`, `answering.py`, `ats.py` | The form scanner/filler, the answer logic, and ATS detection |
+| `rescore.py` | Re-scores jobs already in the database |
 | `resume.json` | Your resume data (the source of truth; the one setting-like file outside `config\`) |
 | `calibration.json` | *Generated.* The score tuning and its history of fits |
 | `jobs_db.sqlite` | *Generated.* The database |
 | `applications\` | *Generated.* One folder of documents per job |
+| `learned_answers.json` | *Generated.* Form answers you typed in, remembered for next time |
+| `browser_profile\` | *Generated.* The browser's saved logins for `apply_jobs.py` |
 
 `local_scorer.py` and `test.py` are older scratch files that the pipeline doesn't use.
 
@@ -240,7 +269,8 @@ Only list things that are true. The documents are built only from this file.
 | `matched_skills`, `gaps` | JSON lists from the model (or the filter reason) |
 | `status` | `scored`, `scoring_failed` or `filtered` |
 
-A separate `ratings` table holds your hand ratings. Existing databases are upgraded automatically
+`apply_url` is the employer's own application link when the job board provides one. A separate `ratings` table
+holds your hand ratings, and an `applications` table records each job you opened (`applied`, `skipped`, `opened`). Existing databases are upgraded automatically
 the first time you run the new code.
 
 ---
@@ -266,8 +296,8 @@ the first time you run the new code.
 
 ## Not built yet
 
-- Auto-applying to sites
-- Application tracking (applied / interviewing / rejected)
+- Auto-applying on Workday, LinkedIn Easy Apply and Indeed (opt-in switches exist but the fillers aren't built)
+- Application tracking after you apply (interviewing / rejected)
 - Salary storage (JobSpy returns it, but it isn't saved)
 - PDF export (documents are `.docx`)
 - Detecting the same job reposted or listed on both sites under different URLs

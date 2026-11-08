@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     is_retry INTEGER DEFAULT 0,
     status TEXT DEFAULT 'scraped',
     model_score REAL,
-    keyword_score REAL
+    keyword_score REAL,
+    apply_url TEXT
 );
 """
 
@@ -36,6 +37,19 @@ CREATE TABLE IF NOT EXISTS ratings (
     rating REAL,
     batch INTEGER NOT NULL,
     rated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# One row per job you have started applying to (apply_jobs.py).
+# status: applied | skipped | opened (form filled but you did not confirm sending)
+CREATE_APPLICATIONS_SQL = """
+CREATE TABLE IF NOT EXISTS applications (
+    job_url TEXT PRIMARY KEY,
+    apply_url TEXT,
+    ats TEXT,
+    status TEXT NOT NULL,
+    note TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 """
 
@@ -66,10 +80,13 @@ def init_db(db_path: str = DB_PATH) -> None:
         cursor = conn.cursor()
         cursor.execute(CREATE_TABLE_SQL)
         cursor.execute(CREATE_RATINGS_SQL)
+        cursor.execute(CREATE_APPLICATIONS_SQL)
 
         columns = {row[1] for row in cursor.execute("PRAGMA table_info(jobs)")}
         if "job_url" not in columns:
             cursor.execute("ALTER TABLE jobs ADD COLUMN job_url TEXT")
+        if "apply_url" not in columns:
+            cursor.execute("ALTER TABLE jobs ADD COLUMN apply_url TEXT")
         if "keyword_score" not in columns:
             cursor.execute("ALTER TABLE jobs ADD COLUMN keyword_score REAL")
         if "model_score" not in columns:
@@ -107,7 +124,8 @@ def save_job(
 ) -> None:
     """Insert (or update, if the URL already exists) one scored job.
 
-    job:           site, job_url, title, company, location, description
+    job:           site, job_url, title, company, location, description, apply_url (optional:
+                   the employer's own application link, when the job board gives one)
     score:         match_score (the final score), matched_skills, gaps
     status:        defaults to "scored" or "scoring_failed"; main.py passes "filtered"
     model_score:   the raw model score (defaults to match_score unless scoring failed)
@@ -125,8 +143,8 @@ def save_job(
                 """
                 INSERT INTO jobs
                     (site, job_url, title, company, location, description,
-                     match_score, matched_skills, gaps, status, model_score, keyword_score)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     match_score, matched_skills, gaps, status, model_score, keyword_score, apply_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(job_url) DO UPDATE SET
                     match_score = excluded.match_score,
                     matched_skills = excluded.matched_skills,
@@ -134,6 +152,7 @@ def save_job(
                     status = excluded.status,
                     model_score = excluded.model_score,
                     keyword_score = excluded.keyword_score,
+                    apply_url = COALESCE(excluded.apply_url, apply_url),
                     is_retry = 1
                 """,
                 (
@@ -149,7 +168,40 @@ def save_job(
                     status,
                     None if model_score is None else float(model_score),
                     None if keyword_score is None else float(keyword_score),
+                    job.get("apply_url") or None,
                 ),
+            )
+    finally:
+        conn.close()
+
+
+def set_apply_url(job_url: str, apply_url: str, db_path: str = DB_PATH) -> bool:
+    """Store the employer's own application link for a job. False if the job isn't in the database."""
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            cur = conn.execute("UPDATE jobs SET apply_url = ? WHERE job_url = ?", (apply_url, job_url))
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def record_application(job_url: str, status: str, apply_url: str | None = None,
+                       ats: str | None = None, note: str | None = None, db_path: str = DB_PATH) -> None:
+    """Remember what happened with a job (applied / skipped / opened)."""
+    conn = get_db_connection(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """INSERT INTO applications (job_url, apply_url, ats, status, note)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(job_url) DO UPDATE SET
+                       apply_url = COALESCE(excluded.apply_url, apply_url),
+                       ats = COALESCE(excluded.ats, ats),
+                       status = excluded.status,
+                       note = COALESCE(excluded.note, note),
+                       updated_at = CURRENT_TIMESTAMP""",
+                (job_url, apply_url, ats, status, note),
             )
     finally:
         conn.close()
