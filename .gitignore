@@ -1,1 +1,3 @@
-resume.json
+data/resume.json
+data/jobs_db.sqlite
+data/calibration.json

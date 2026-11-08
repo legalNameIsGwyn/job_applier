@@ -17,6 +17,7 @@ import json
 import sqlite3
 import textwrap
 
+from config.settings import SHOW_DEFAULT_COUNT
 from db import DB_PATH
 
 
@@ -112,7 +113,7 @@ def show_jobs(n: int = 10, order: str = "top", full: bool = False, **filters) ->
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Show top or bottom scored jobs.")
-    p.add_argument("-n", type=int, default=10, help="how many jobs to show (default 10)")
+    p.add_argument("-n", type=int, default=SHOW_DEFAULT_COUNT, help=f"how many jobs to show (default {SHOW_DEFAULT_COUNT})")
     p.add_argument("--bottom", action="store_true", help="show the lowest scores instead of the highest")
     p.add_argument("--min-score", type=float, help="only jobs scoring at least this")
     p.add_argument("--max-score", type=float, help="only jobs scoring at most this")

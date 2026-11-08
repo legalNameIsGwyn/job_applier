@@ -9,6 +9,12 @@ import time
 import pandas as pd
 from jobspy import scrape_jobs
 
+from config.settings import (
+    AVAILABLE_SITES, COUNTRY_INDEED, DEFAULT_HOURS_OLD, DEFAULT_RESULTS_WANTED, DELAY_BETWEEN_SEARCH_TERMS,
+    DESCRIPTION_FETCH_DELAY, DESCRIPTION_FETCH_TIMEOUT, RATE_LIMIT_BACKOFF_SECONDS, RATE_LIMIT_STOP_AFTER,
+    LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS, LINKEDIN_RESULTS_WANTED, USER_AGENT,
+) 
+
 try:  # both are normally installed alongside jobspy
     import requests
     from bs4 import BeautifulSoup
@@ -26,21 +32,17 @@ DESCRIPTION_KWARGS = {
     if name in _SCRAPE_PARAMS
 }
 
-AVAILABLE_SITES = ["linkedin", "indeed"]
 
 # "zip_recruiter", "glassdoor", "bayt", "naukri", "bdjobs", "hellowork",
 
 SCRAPE_CONFIG = {
-    "results_wanted": 10,
-    "hours_old": 24,
+    "results_wanted": DEFAULT_RESULTS_WANTED,
+    "hours_old": DEFAULT_HOURS_OLD,
 }
 
 LINKEDIN_JOB_API = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
 REQUEST_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-    ),
+    "User-Agent": USER_AGENT,
     "Accept-Language": "en-US,en;q=0.9",
 }
 
@@ -78,7 +80,7 @@ def _parse_linkedin_description(html: str) -> str:
 
 
 def _fetch_linkedin_description(session, job_id: str) -> str:
-    resp = session.get(LINKEDIN_JOB_API.format(job_id=job_id), timeout=20)
+    resp = session.get(LINKEDIN_JOB_API.format(job_id=job_id), timeout=DESCRIPTION_FETCH_TIMEOUT)
     if resp.status_code == 429:
         raise _RateLimited()
     if resp.status_code != 200:
@@ -87,7 +89,7 @@ def _fetch_linkedin_description(session, job_id: str) -> str:
 
 
 def fill_missing_descriptions(
-    df: pd.DataFrame, min_delay: float = 1.5, max_delay: float = 3.5
+    df: pd.DataFrame, min_delay: float = DESCRIPTION_FETCH_DELAY[0], max_delay: float = DESCRIPTION_FETCH_DELAY[1]
 ) -> pd.DataFrame:
     """Fetch the description from each LinkedIn job page that lacks one.
 
@@ -131,12 +133,12 @@ def fill_missing_descriptions(
             rate_limited_in_a_row = 0
         except _RateLimited:
             rate_limited_in_a_row += 1
-            if rate_limited_in_a_row >= 3:
+            if rate_limited_in_a_row >= RATE_LIMIT_STOP_AFTER:
                 print("[SCRAPER] LinkedIn is rate limiting (429). Stopping description "
                       "fetching; wait a while and re-run to pick up the rest.")
                 break
             print("[SCRAPER] Rate limited (429), backing off...")
-            time.sleep(30 * rate_limited_in_a_row)
+            time.sleep(RATE_LIMIT_BACKOFF_SECONDS * rate_limited_in_a_row)
             continue
         except requests.RequestException as e:
             print(f"[SCRAPER] Could not fetch job {job_id}: {e}")
@@ -169,6 +171,9 @@ async def scrape_sites(
 
     normalized_site = site_name.lower().replace(" ", "")
 
+    if normalized_site == "linkedin":
+        config["results_wanted"] = min(config["results_wanted"], LINKEDIN_RESULTS_WANTED)
+
     if normalized_site not in AVAILABLE_SITES:
         raise ValueError(f"Invalid site name. Must be one of: {AVAILABLE_SITES}")
 
@@ -182,8 +187,8 @@ async def scrape_sites(
             site_name=[normalized_site],
             search_term=search_term,
             location=location,
-            country_indeed="USA",
-            **DESCRIPTION_KWARGS,
+            country_indeed=COUNTRY_INDEED,
+            **(DESCRIPTION_KWARGS if LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS else {}),
             **config,
         )
         print(f"[SCRAPER] Found {len(df)} jobs from {normalized_site}")
@@ -223,7 +228,7 @@ async def scrape_multiple_terms(
     location: str,
     results_wanted: int | None = None,
     hours_old: int | None = None,
-    delay_between_terms: float = 5.0,
+    delay_between_terms: float = DELAY_BETWEEN_SEARCH_TERMS,
 ) -> pd.DataFrame:
     """Run every search term across every site and merge the results.
 

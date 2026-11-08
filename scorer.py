@@ -1,26 +1,30 @@
-"""Local Job Scorer - Scores job postings against a resume using local Ollama models."""
+"""Local Job Scorer - Scores job postings against a resume using local Ollama models.
+
+Settings live in config/: the model and timeouts in settings.py, the clearance rules in
+filter_rules.py, and the prompt in prompts.py.
+"""
 
 import functools
 import json
 import logging
-import os
 import re
 
 import ollama
 
+from config.filter_rules import BLOCKER_PATTERNS, NO_BLOCKER_PATTERN
+from config.prompts import SCORING_PROMPT
+from config.settings import (
+    DESCRIPTION_CHARS_SCORING, OLLAMA_MODEL, REQUEST_TIMEOUT_SECONDS, RESUME_FILE, SCORING_TEMPERATURE,
+)
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Fast non-reasoning model. Install with:  ollama pull qwen2.5:7b
-# Override without editing code:  set OLLAMA_MODEL=deepseek-r1:7b
-MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
+MODEL = OLLAMA_MODEL
 
-# A stuck request raises after this many seconds instead of hanging forever;
+# A stuck request raises after REQUEST_TIMEOUT_SECONDS instead of hanging forever;
 # main.py records it as a failed job and moves on.
-REQUEST_TIMEOUT_SECONDS = 180
 client = ollama.Client(timeout=REQUEST_TIMEOUT_SECONDS)
-
-RESUME_FILE = r"c:/Users/Gwyn/Desktop/Projects/job_scraper/resume.json"
 
 SCORE_SCHEMA = {
     "type": "object",
@@ -31,28 +35,6 @@ SCORE_SCHEMA = {
     },
     "required": ["match_score", "matched_skills", "gaps"],
 }
-
-# Postings matching any of these are scored 0 without calling the model
-# (small models apply the "rate it zero" prompt rule unreliably).
-BLOCKER_PATTERNS = [
-    r"security clearance",
-    r"\bts\s*/\s*sci\b",
-    r"top[- ]secret",
-    r"secret clearance",
-    r"active clearance",
-    r"clearance (is )?required",
-    r"polygraph",
-    r"(u\.?s\.?|united states) citizen(ship)?\s+(is\s+)?(required|only)",
-    r"must be (a )?(u\.?s\.?|united states) citizen",
-    r"citizenship (is )?required",
-    r"u\.?s\.? citizens? only",
-]
-NO_BLOCKER_PATTERN = (
-    r"no (security )?clearance"
-    r"|clearance (is )?not required"
-    r"|not require (a )?(security )?clearance"
-    r"|without (a )?clearance"
-)
 
 
 @functools.lru_cache(maxsize=1)
@@ -120,48 +102,38 @@ def score_job(job_title: str, company: str, location: str, description: str) -> 
         return {"match_score": 0.0, "matched_skills": [], "gaps": [reason]}
 
     resume = load_resume()
-
     experience = resume.get("experience", [])
-    has_associate_or_junior = any(
-        "associate" in e.get("role", "").lower() or "junior" in e.get("role", "").lower()
-        for e in experience
-    )
     experience_lines = "\n".join(
         f"    * {e.get('role', '')} at {e.get('company', '')} ({e.get('years', '')}): "
         f"{e.get('description', '')}"
         for e in experience
     )
 
-    prompt = f"""You are a hiring manager reviewing applications for ENTRY-LEVEL positions only.
-    I have my resume and a job posting.
-
-    Resume summary (extracted facts ONLY - do NOT invent experience):
-    - Name: {resume.get('name', '')}
-    - Location: {resume.get('contact', {}).get('location', 'Remote')}
-    - Skills from resume: {', '.join(resume.get('skills', []))}
-    - Experience ({len(experience)} roles):
-{experience_lines}
-
-    IMPORTANT: This is an ENTRY-LEVEL job search. Your match score should reflect whether my skills and ANY actual experience make me suitable for junior/entry-level roles, not senior positions. My Associate/Junior level roles count as entry-level experience. Do NOT heavily penalize gaps if I have relevant foundational skills like Python, Java, or JavaScript. Rate it 0 if it requires any clearance level or does not accept green card holders.
-
-    Job title: {job_title}
-    Company: {company}
-    Location: {location}
-    Description: {description[:2000]}
-
-    Rate your match on a scale of 1-10. Provide:
-    - A numeric score (1-10): Associate/Junior roles qualify you even at score 5
-    - Which skills from my resume match this job (list them)
-    - Any significant gaps I have compared to the job requirements
-
-    Respond with JSON only, using exactly these keys:
-    {{"match_score": <number 0-10>, "matched_skills": ["..."], "gaps": ["..."]}}"""
+    values = dict(
+        name=resume.get("name", ""),
+        location=resume.get("contact", {}).get("location", "Remote"),
+        skills=", ".join(resume.get("skills", [])),
+        n_roles=len(experience),
+        experience_lines=experience_lines,
+        job_title=job_title,
+        company=company,
+        job_location=location,
+        description=description[:DESCRIPTION_CHARS_SCORING],
+    )
+    try:
+        prompt = SCORING_PROMPT.format(**values)
+    except (KeyError, IndexError, ValueError) as e:
+        raise ValueError(
+            f"SCORING_PROMPT in config/prompts.py has a problem ({e!r}). "
+            f"Allowed placeholders: {', '.join('{' + k + '}' for k in values)}. "
+            "Write a literal brace as {{ or }}."
+        ) from None
 
     chat_args = dict(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
         format=SCORE_SCHEMA,  # forces the output shape
-        options={"temperature": 0},
+        options={"temperature": SCORING_TEMPERATURE},
     )
     try:
         # think=False stops Qwen3-style models from "thinking" first, which is

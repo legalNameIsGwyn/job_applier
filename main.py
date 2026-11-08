@@ -1,4 +1,8 @@
-"""Main job scraper pipeline: scrape -> score -> save (each job saved as it's scored)."""
+"""Main job scraper pipeline: scrape -> filter -> score -> save -> make documents.
+
+Run it with:  python main.py
+What to search for, which model to use and every other setting is in config/settings.py.
+"""
 
 import asyncio
 from datetime import datetime
@@ -10,18 +14,36 @@ from scraper import fill_missing_descriptions, scrape_multiple_terms
 from scorer import MODEL, load_resume, score_job
 from application_maker import create_application, job_folder
 from show_jobs import get_jobs
+from filters import filter_reason
+from calibration import blend, keyword_score
 
-MAX_CONSECUTIVE_FAILURES = 3  # abort if Ollama is clearly broken (not running, model missing)
-
-# Automatic resume + cover letter generation after scoring
-DOC_MIN_SCORE = 6      # only jobs scoring at least this get documents
-MAX_DOCS_PER_RUN = 10  # cap per run (each job needs two model calls)
-DOC_WINDOW_DAYS = 7    # only consider jobs scraped in the last N days
+from config.settings import (
+    DOC_MIN_SCORE, DOC_WINDOW_DAYS, HOURS_OLD, LOCATION, MAKE_DOCS, MAX_CONSECUTIVE_FAILURES,
+    MAX_DOCS_PER_RUN, RESULTS_WANTED, SEARCH_TERMS, SITES,
+)
 
 
 def clean(value) -> str:
     """Turn NaN/None from the DataFrame into an empty string."""
     return "" if pd.isna(value) else str(value)
+
+
+def job_from_row(row) -> dict:
+    """One DataFrame row -> the plain dict the database and scorer use."""
+    return {
+        "site": clean(row.get("site")) or "unknown",
+        "job_url": clean(row.get("job_url")),
+        "title": clean(row.get("title")),
+        "company": clean(row.get("company")),
+        "location": clean(row.get("location")),
+        "description": clean(row.get("description")),
+    }
+
+
+def save_filtered(job: dict, reason: str) -> None:
+    """Record a rule-filtered job (score 0, status 'filtered') so it is never re-scraped or re-scored."""
+    save_job(job, {"match_score": 0.0, "matched_skills": [], "gaps": [reason]},
+             status="filtered", model_score=0.0)
 
 
 def generate_documents(min_score: float = DOC_MIN_SCORE, max_docs: int = MAX_DOCS_PER_RUN,
@@ -62,9 +84,9 @@ async def main(
     site_names: list[str],
     search_term: str | list[str],
     location: str,
-    results_wanted: int = 100,
-    hours_old: int = 72,
-    make_docs: bool = True,
+    results_wanted: int = RESULTS_WANTED,
+    hours_old: int = HOURS_OLD,
+    make_docs: bool = MAKE_DOCS,
     doc_min_score: float = DOC_MIN_SCORE,
     max_docs: int = MAX_DOCS_PER_RUN,
 ) -> None:
@@ -120,6 +142,21 @@ async def main(
     todo = df[~df["job_url"].isin(already_scored)].copy()
     print(f"[SCORER] {len(df) - len(todo)} already scored, {len(todo)} to score")
 
+    # Filter stage 1: title / company rules (seniority, staffing agencies). These need no
+    # description, so they run BEFORE any description is fetched and save those requests.
+    filtered_count, kept = 0, []
+    for idx, row in todo.iterrows():
+        job = job_from_row(row)
+        reason = filter_reason(job["title"], job["company"])
+        if reason:
+            save_filtered(job, reason)
+            filtered_count += 1
+        else:
+            kept.append(idx)
+    if filtered_count:
+        print(f"[FILTER] Skipped {filtered_count} jobs by title/company rules")
+    todo = todo.loc[kept]
+
     # Fetch descriptions only for jobs we still need to score (saves requests on re-runs)
     todo = await asyncio.to_thread(fill_missing_descriptions, todo)
 
@@ -145,28 +182,35 @@ async def main(
     consecutive_failures = 0
 
     for i, (_, row) in enumerate(todo.iterrows(), start=1):
-        job = {
-            "site": clean(row.get("site")) or "unknown",
-            "job_url": clean(row.get("job_url")),
-            "title": clean(row.get("title")),
-            "company": clean(row.get("company")),
-            "location": clean(row.get("location")),
-            "description": clean(row.get("description")),
-        }
+        job = job_from_row(row)
+
+        # Filter stage 2: needs the description (years of experience required)
+        reason = filter_reason(job["title"], job["company"], job["description"])
+        if reason:
+            print(f"\n[FILTER] {job['title'][:50]}: {reason}")
+            save_filtered(job, reason)
+            filtered_count += 1
+            continue
+
         print(f"\n[SCORER] Scoring job {i}/{len(todo)}: {job['title'][:50]}...")
 
         try:
             score = score_job(job["title"], job["company"], job["location"], job["description"])
+            # Final score = model score blended with the keyword score, tuned by rating.py
+            model_score = score["match_score"]
+            keyword = keyword_score(job["title"], job["description"])
+            score = {**score, "match_score": blend(model_score, keyword)}
             consecutive_failures = 0
         except Exception as e:
             print(f"[SCORER] Failed on '{job['title']}': {e}")
             score = {"match_score": FAILED_SCORE, "matched_skills": [], "gaps": ["scoring failed"]}
+            model_score = keyword = None
             consecutive_failures += 1
 
-        save_job(job, score)
+        save_job(job, score, model_score=model_score, keyword_score=keyword)
 
         if score["match_score"] >= 0:
-            print(f"[SCORER] Score: {score['match_score']}")
+            print(f"[SCORER] Score: {score['match_score']}  (model {model_score:g}, keywords {keyword:g})")
             results.append((score["match_score"], job))
 
         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
@@ -176,11 +220,13 @@ async def main(
 
     # Step 5: Summary
     print("\n[PIPELINE] Pipeline complete!")
-    print(f"Scored {len(results)} jobs this run. Database: {DB_PATH}")
+    print(f"Scored {len(results)} jobs this run, filtered out {filtered_count}. Database: {DB_PATH}")
 
-    if results:
+    if any(score > 0 for score, _ in results):
         print("\nTop matches this run:")
         for score, job in sorted(results, key=lambda r: r[0], reverse=True)[:10]:
+            if score <= 0:
+                break
             print(f"  {score:>4}  {job['title'][:45]} - {job['company'][:25]}\n        {job['job_url']}")
 
     # Step 6: Resume + cover letter for the best matches
@@ -191,18 +237,9 @@ async def main(
 
 
 if __name__ == "__main__":
+    # Everything below comes from config/settings.py; edit the values there.
     asyncio.run(main(
-        site_names=["linkedin", "indeed"],
-        search_term=[
-            "junior software engineer",
-            "software developer",
-            "python developer",
-            "associate software engineer",
-        ],
-        location="Norfolk, VA",
-        results_wanted=50,  # per site, per search term
-        hours_old=72,
-        make_docs=True,       # set False to only scrape and score
-        doc_min_score=6,
-        max_docs=10,
+        site_names=SITES,
+        search_term=SEARCH_TERMS,
+        location=LOCATION,
     ))

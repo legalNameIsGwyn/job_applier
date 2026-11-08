@@ -3,7 +3,7 @@
 import json
 import sqlite3
 
-DB_PATH = r"c:/Users/Gwyn/Desktop/Projects/job_scraper/jobs_db.sqlite"
+from config.settings import DB_PATH  # edit the location in config/settings.py
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -19,7 +19,23 @@ CREATE TABLE IF NOT EXISTS jobs (
     matched_skills TEXT NOT NULL,
     gaps TEXT NOT NULL,
     is_retry INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'scraped'
+    status TEXT DEFAULT 'scraped',
+    model_score REAL,
+    keyword_score REAL
+);
+"""
+
+# match_score is the FINAL score (model score blended with the keyword score and
+# calibrated to your hand ratings). model_score keeps the raw model output so the
+# calibration can be re-fitted later; keyword_score is the deterministic keyword score.
+
+# Your hand ratings. rating is NULL when you skipped a job (so it isn't offered again).
+CREATE_RATINGS_SQL = """
+CREATE TABLE IF NOT EXISTS ratings (
+    job_url TEXT PRIMARY KEY,
+    rating REAL,
+    batch INTEGER NOT NULL,
+    rated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 """
 
@@ -44,15 +60,22 @@ def get_db_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
 
 
 def init_db(db_path: str = DB_PATH) -> None:
-    """Initialize the database, migrating older databases that lack job_url."""
+    """Initialize the database, migrating older databases (adds any missing columns)."""
     conn = get_db_connection(db_path)
     try:
         cursor = conn.cursor()
         cursor.execute(CREATE_TABLE_SQL)
+        cursor.execute(CREATE_RATINGS_SQL)
 
         columns = {row[1] for row in cursor.execute("PRAGMA table_info(jobs)")}
         if "job_url" not in columns:
             cursor.execute("ALTER TABLE jobs ADD COLUMN job_url TEXT")
+        if "keyword_score" not in columns:
+            cursor.execute("ALTER TABLE jobs ADD COLUMN keyword_score REAL")
+        if "model_score" not in columns:
+            cursor.execute("ALTER TABLE jobs ADD COLUMN model_score REAL")
+            # Every score saved before this column existed is a raw model score; freeze it.
+            cursor.execute("UPDATE jobs SET model_score = match_score WHERE match_score >= 0")
 
         cursor.execute(CREATE_INDEX_SQL)
         cursor.execute(CREATE_UNIQUE_URL_INDEX_SQL)
@@ -63,7 +86,7 @@ def init_db(db_path: str = DB_PATH) -> None:
 
 
 def get_scored_urls(db_path: str = DB_PATH) -> set[str]:
-    """URLs of jobs already scored successfully (failed ones are retried)."""
+    """URLs of jobs already scored or filtered (failed ones are retried)."""
     conn = get_db_connection(db_path)
     try:
         rows = conn.execute(
@@ -74,14 +97,26 @@ def get_scored_urls(db_path: str = DB_PATH) -> set[str]:
     return {row[0] for row in rows}
 
 
-def save_job(job: dict, score: dict, db_path: str = DB_PATH) -> None:
+def save_job(
+    job: dict,
+    score: dict,
+    db_path: str = DB_PATH,
+    status: str | None = None,
+    model_score: float | None = None,
+    keyword_score: float | None = None,
+) -> None:
     """Insert (or update, if the URL already exists) one scored job.
 
-    job:   site, job_url, title, company, location, description
-    score: match_score, matched_skills, gaps
+    job:           site, job_url, title, company, location, description
+    score:         match_score (the final score), matched_skills, gaps
+    status:        defaults to "scored" or "scoring_failed"; main.py passes "filtered"
+    model_score:   the raw model score (defaults to match_score unless scoring failed)
+    keyword_score: the keyword-match score used in the blend
     """
     failed = score["match_score"] < 0
-    status = "scoring_failed" if failed else "scored"
+    status = status or ("scoring_failed" if failed else "scored")
+    if model_score is None and not failed:
+        model_score = score["match_score"]
 
     conn = get_db_connection(db_path)
     try:
@@ -90,13 +125,15 @@ def save_job(job: dict, score: dict, db_path: str = DB_PATH) -> None:
                 """
                 INSERT INTO jobs
                     (site, job_url, title, company, location, description,
-                     match_score, matched_skills, gaps, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     match_score, matched_skills, gaps, status, model_score, keyword_score)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(job_url) DO UPDATE SET
                     match_score = excluded.match_score,
                     matched_skills = excluded.matched_skills,
                     gaps = excluded.gaps,
                     status = excluded.status,
+                    model_score = excluded.model_score,
+                    keyword_score = excluded.keyword_score,
                     is_retry = 1
                 """,
                 (
@@ -110,6 +147,8 @@ def save_job(job: dict, score: dict, db_path: str = DB_PATH) -> None:
                     json.dumps(list(score.get("matched_skills", []))),
                     json.dumps(list(score.get("gaps", []))),
                     status,
+                    None if model_score is None else float(model_score),
+                    None if keyword_score is None else float(keyword_score),
                 ),
             )
     finally:

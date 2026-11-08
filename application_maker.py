@@ -11,15 +11,17 @@ Usage (from the project folder):
     python application_maker.py --url https://www.linkedin.com/jobs/view/123...
     python application_maker.py --top 5 --force          # regenerate existing ones
 
-Output goes to the "applications" folder next to this file, one subfolder per
-job: Gwyn_Dollente_Resume.docx, Gwyn_Dollente_Cover_Letter.docx and notes.txt (job link plus anything to
-double-check). Always read the cover letter before sending it.
+Output goes to the applications folder (APPLICATIONS_DIR in config/settings.py), one
+subfolder per job: a resume, a cover letter and notes.txt (job link plus anything to
+double-check). The file and folder names are built from your resume.json name and the job;
+see the file-name templates in config/settings.py. Always read the cover letter before sending it.
 """
 
 import argparse
 import hashlib
 import json
 import re
+import shutil
 import sqlite3
 from datetime import date
 from pathlib import Path
@@ -30,13 +32,21 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
 
+from config.keywords import COMMON_TERMS, SKILL_ALIASES
+from config.settings import (
+    APPLICATION_FOLDER, APPLICATIONS_DIR, COVER_LETTER_FILENAME, COVER_LETTER_GREETING, COVER_LETTER_SIGN_OFF,
+    DESCRIPTION_CHARS_WRITING, FONT, MAX_PROJECTS, NOTES_FILENAME, RESUME_FILENAME, TAILOR_MAX_SKILLS,
+    WRITING_TEMPERATURE,
+)
+from config.writing_style import (
+    LETTER_AUTHORIZATION_RULE, LETTER_AVAILABILITY_CLAUSE, LETTER_KEYWORD_RULE, LETTER_PROMPT, LETTER_STRUCTURE,
+    LETTER_WARN_WORDS, SLOP_PATTERNS, STYLE_RULES, TAILOR_PROMPT, TRUTH_RULES,
+)
 from db import DB_PATH
 from scorer import MODEL, client, extract_json, load_resume
 from show_jobs import get_jobs
 
-OUTPUT_DIR = Path(__file__).resolve().parent / "applications"
-MAX_PROJECTS = 3
-FONT = "Calibri"
+OUTPUT_DIR = Path(APPLICATIONS_DIR)
 
 TAILOR_SCHEMA = {
     "type": "object",
@@ -54,39 +64,11 @@ LETTER_SCHEMA = {
     "required": ["paragraphs"],
 }
 
-TRUTH_RULES = (
-    "Use ONLY facts stated in the resume data. Never invent employers, job titles, dates, "
-    "numbers, metrics, tools, certifications or degrees. If the job asks for something that is "
-    "not in the resume, do not claim it. Both jobs on the resume have ended, so write about "
-    "them in the past tense."
-)
-
-
 # ------------------------------------------------------------------ writing style
 # Plain, specific writing without the usual AI tells. Rules go into the prompt,
 # then clean_style() fixes mechanical tells and slop_flags() catches the rest.
 
-STYLE_RULES = """Style rules (follow all of them):
-- Name the concrete thing: the tool, system or project, not a feeling about it. Prefer "I built an overtime tracker in Laravel" over "I am passionate about impactful solutions".
-- Short, plain sentences in the active voice. Ordinary words ("use", not "leverage"; "help", not "foster").
-- No em dashes, no colons in sentences, no bold, no emojis, no bullet points.
-- No "not just X, but Y" sentences. No lists of three just for rhythm. Do not repeat a point in different words.
-- Do not tack on "-ing" phrases that claim significance (", highlighting my ...", ", showcasing my ...").
-- Do not use: delve, leverage, tapestry, testament, pivotal, crucial, vibrant, showcase, underscore, foster, realm, landscape, robust, seamless, cutting-edge, passionate, synergy, spearhead, myriad.
-- No flattery of the company and no generic closing line. End on a specific, short invitation to talk.
-- No hedging ("I believe", "I feel that")."""
-
-SLOP_PATTERNS = {
-    "AI vocabulary": r"\b(delv\w+|leverag\w+|tapestry|testament|pivotal|crucial|vibrant|showcas\w+|underscor\w+|"
-                     r"foster\w*|realm|landscape|robust|seamless\w*|cutting-edge|passionate|synerg\w+|"
-                     r"spearhead\w*|myriad|multifaceted|dynamic)\b",
-    "'not just X, but Y'": r"\bnot (?:just|only|merely)\b[^.]{0,80}\bbut\b",
-    "'-ing' significance tail": r",\s+(?:highlighting|showcasing|underscoring|demonstrating|reflecting|ensuring|enabling)\b",
-    "chatbot phrasing": r"\b(i hope this (?:letter |message |email )?finds you|i am writing to|i would be (?:thrilled|delighted)|"
-                        r"great question)\b",
-    "filler": r"\b(in order to|due to the fact that|it is important to note|at the end of the day|in today's)\b",
-    "hedging": r"\b(i believe|i feel that)\b",
-}
+# STYLE_RULES and SLOP_PATTERNS are edited in config/writing_style.py
 
 
 def clean_style(text: str) -> str:
@@ -112,39 +94,7 @@ def slop_flags(text: str) -> list[str]:
 # the letter) and which common terms it asks for that you don't have. Nothing is ever
 # added to the resume from here; it only reorders and reports.
 
-SKILL_ALIASES = {
-    "Spring Boot": ["springboot", "spring boot"],
-    "JavaScript": ["javascript", "js", "ecmascript"],
-    "Node.js": ["node.js", "nodejs"],
-    "Express.js": ["express.js", "expressjs"],
-    "REST API Development": ["rest api", "rest apis", "restful api", "restful apis", "restful", "rest services"],
-    "MySQL": ["mysql", "sql"],
-    "Bash scripting": ["bash", "shell scripting", "shell"],
-    "Linux": ["linux", "unix"],
-    "Git": ["git", "github", "gitlab", "version control"],
-    "Manual Testing": ["manual testing", "manual tests", "test cases", "testing"],
-    "Automated Testing": ["automated testing", "test automation", "automated tests", "automation testing"],
-    "Quality Assurance": ["quality assurance", "qa"],
-    "Production Support": ["production support", "application support", "operations support"],
-    "LLMs/AI": ["llm", "llms", "large language model", "large language models", "generative ai", "genai", "ai"],
-    "RAG": ["rag", "retrieval augmented generation", "retrieval-augmented generation"],
-    "Microsoft Office": ["microsoft office", "ms office", "office 365", "m365"],
-    "Eloquent ORM": ["eloquent"],
-    "HTML5": ["html5", "html"],
-    "CSS": ["css", "css3"],
-    "VLANs": ["vlan", "vlans"],
-    "Network Design": ["network design", "networking"],
-    "Cisco Packet Tracer": ["packet tracer"],
-}
-
-# Common terms postings ask for. Reported (never added) when the posting uses them
-# and your resume has no matching skill.
-COMMON_TERMS = [
-    "AWS", "Azure", "GCP", "Docker", "Kubernetes", "React", "Angular", "Vue", "TypeScript", "C++", ".NET",
-    "Go", "Rust", "Ruby", "Django", "Flask", "FastAPI", "PostgreSQL", "MongoDB", "Redis", "SQL Server",
-    "Oracle", "CI/CD", "Jenkins", "Terraform", "GraphQL", "Selenium", "Agile", "Scrum", "Kotlin", "Swift",
-    "Tableau", "Power BI", "Splunk", "ServiceNow",
-]
+# SKILL_ALIASES and COMMON_TERMS are edited in config/keywords.py
 
 
 def _term_regex(term: str) -> re.Pattern:
@@ -177,7 +127,7 @@ def _ask(prompt: str, schema: dict) -> dict:
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
         format=schema,
-        options={"temperature": 0.3},
+        options={"temperature": WRITING_TEMPERATURE},
     )
     try:
         response = client.chat(think=False, **args)
@@ -202,6 +152,18 @@ def unsupported_numbers(text: str, *sources: str) -> list[str]:
     haystack = " ".join(sources)
     found = re.findall(r"\d+(?:[.,]\d+)?%?", text)
     return sorted({n for n in found if n not in haystack})
+
+
+def _fill(template_name: str, template: str, **values) -> str:
+    """Fill a prompt template from config/writing_style.py; explain clearly if it has a typo."""
+    try:
+        return template.format(**values)
+    except (KeyError, IndexError, ValueError) as e:
+        raise ValueError(
+            f"{template_name} in config/writing_style.py has a problem ({e!r}). "
+            f"Allowed placeholders: {', '.join('{' + k + '}' for k in values)}. "
+            "Write a literal brace as {{ or }}."
+        ) from None
 
 
 def _resume_facts(resume: dict) -> str:
@@ -236,20 +198,12 @@ def _resume_facts(resume: dict) -> str:
 
 def tailor_resume(job: dict, resume: dict) -> dict:
     """Ask the model how to emphasize the resume for this job, then validate its choices."""
-    prompt = f"""You are helping tailor an entry-level software resume to one job.
-
-RESUME DATA:
-{_resume_facts(resume)}
-
-JOB: {job['title']} at {job['company']}
-{(job.get('description') or '')[:3000]}
-
-{TRUTH_RULES}
-
-Return JSON with:
-- "summary": 2 plain sentences, under 60 words, rewriting the resume summary to fit this job. Keep the degree and the real roles; do not add new claims. Where it is true, use the posting's own wording for my skills. No em dashes and no buzzwords (leverage, passionate, dynamic, robust).
-- "relevant_skills": up to 12 skills copied EXACTLY from the resume skills list, most relevant to this job first.
-- "project_names": up to {MAX_PROJECTS} project names copied EXACTLY from the resume, most relevant first."""
+    prompt = _fill(
+        "TAILOR_PROMPT", TAILOR_PROMPT,
+        resume_facts=_resume_facts(resume), job_title=job["title"], company=job["company"],
+        description=(job.get("description") or "")[:DESCRIPTION_CHARS_WRITING],
+        truth_rules=TRUTH_RULES, max_skills=TAILOR_MAX_SKILLS, max_projects=MAX_PROJECTS,
+    )
     raw = _ask(prompt, TAILOR_SCHEMA)
 
     summary = clean_style(str(raw.get("summary", "")))
@@ -257,7 +211,7 @@ Return JSON with:
     if not (30 <= len(summary) <= 450) or unsupported_numbers(summary, allowed) or slop_flags(summary):
         summary = resume.get("summary", "")  # fall back to the original, always safe
 
-    skills = _pick(resume.get("skills", []), raw.get("relevant_skills"), 12)
+    skills = _pick(resume.get("skills", []), raw.get("relevant_skills"), TAILOR_MAX_SKILLS)
     project_names = _pick([p["name"] for p in resume.get("projects", [])], raw.get("project_names"), MAX_PROJECTS)
     job_text = f"{job['title']}\n{job.get('description') or ''}"
     keyword_hits = matched_skills(job_text, resume.get("skills", []))
@@ -299,37 +253,24 @@ def write_cover_letter(job: dict, resume: dict) -> tuple[list[str], list[str]]:
     """Return (body paragraphs, warnings). Greeting and sign-off are added in code."""
     job_text = f"{job['title']}\n{job.get('description') or ''}"
     keywords = matched_skills(job_text, resume.get("skills", []))[:6]
-    keyword_rule = (
-        f"- Where it is true, use the posting's own wording for these skills I actually have: {', '.join(keywords)}. "
-        "Use each at most once, inside a real example, never as a list.\n" if keywords else ""
-    )
+    keyword_rule = _fill("LETTER_KEYWORD_RULE", LETTER_KEYWORD_RULE, keywords=", ".join(keywords)) if keywords else ""
     auth = resume.get("work_authorization")
-    auth_rule = (
-        f"- In paragraph 3, say in one short sentence that I am a {auth}"
-        + (f" and available for an {resume['availability'].lower()}" if resume.get("availability") else "")
-        + ".\n" if auth else ""
+    availability_clause = (
+        _fill("LETTER_AVAILABILITY_CLAUSE", LETTER_AVAILABILITY_CLAUSE, availability=resume["availability"].lower())
+        if resume.get("availability") else ""
     )
-    prompt = f"""Write the BODY of a cover letter for this job, in first person, as {resume['name']}.
-
-RESUME DATA:
-{_resume_facts(resume)}
-
-JOB: {job['title']} at {job['company']} ({job.get('location', '')})
-{(job.get('description') or '')[:3000]}
-
-{TRUTH_RULES}
-
-Requirements:
-- Exactly 3 short paragraphs, 200 words or fewer in total.
-- Paragraph 1: interest in this specific role and company, and the most relevant thing from the resume.
-- Paragraph 2: two or three concrete examples from the real experience or projects that match what the job asks for.
-- Paragraph 3: a brief, confident close that invites a conversation.
-- Use the exact job title "{job['title']}" and the company name "{job['company']}" once each.
-{keyword_rule}{auth_rule}- Do NOT include a greeting ("Dear ..."), a sign-off, the name, a date or any placeholder in brackets.
-
-{STYLE_RULES}
-
-Return JSON: {{"paragraphs": ["...", "...", "..."]}}"""
+    authorization_rule = (
+        _fill("LETTER_AUTHORIZATION_RULE", LETTER_AUTHORIZATION_RULE,
+              work_authorization=auth, availability_clause=availability_clause)
+        if auth else ""
+    )
+    prompt = _fill(
+        "LETTER_PROMPT", LETTER_PROMPT,
+        name=resume["name"], resume_facts=_resume_facts(resume), job_title=job["title"], company=job["company"],
+        job_location=job.get("location", ""), description=(job.get("description") or "")[:DESCRIPTION_CHARS_WRITING],
+        truth_rules=TRUTH_RULES, letter_structure=LETTER_STRUCTURE, keyword_rule=keyword_rule,
+        authorization_rule=authorization_rule, style_rules=STYLE_RULES,
+    )
     paragraphs = _parse_letter(_ask(prompt, LETTER_SCHEMA))
 
     # If the draft still sounds like AI, ask once more, naming exactly what to remove.
@@ -355,7 +296,7 @@ Return JSON: {{"paragraphs": ["...", "...", "..."]}}"""
     bad = unsupported_numbers(text, allowed)
     if bad:
         warnings.append(f"Cover letter mentions numbers not found in your resume or the job post: {', '.join(bad)}. Verify or remove.")
-    if len(text.split()) > 280:
+    if len(text.split()) > LETTER_WARN_WORDS:
         warnings.append("Cover letter is longer than expected; consider trimming.")
     return paragraphs, warnings
 
@@ -499,10 +440,10 @@ def build_cover_letter(resume: dict, job: dict, paragraphs: list[str], path: Pat
     _para(doc, job["company"], after=0)
     if job.get("location"):
         _para(doc, job["location"], after=10)
-    _para(doc, "Dear Hiring Team,", after=8)
+    _para(doc, COVER_LETTER_GREETING, after=8)
     for p in paragraphs:
         _para(doc, p, after=8)
-    _para(doc, "Sincerely,", before=4, after=0)
+    _para(doc, COVER_LETTER_SIGN_OFF, before=4, after=0)
     _para(doc, resume["name"])
     _set_metadata(doc, resume, f"{resume['name']} - Cover Letter")
     doc.save(path)
@@ -515,9 +456,42 @@ def _slug(text: str, limit: int = 30) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")[:limit] or "job"
 
 
+def _safe(text: str) -> str:
+    """Keep letters (any language), digits, '-', '_' and '.'; everything else becomes '_'."""
+    return re.sub(r"[^\w.-]+", "_", text).strip("._") or "file"
+
+
+def name_fields(resume: dict, job: dict | None = None) -> dict:
+    """Values available to the file-name templates in config/settings.py."""
+    words = resume["name"].split() or ["resume"]
+    fields = {
+        "name": _safe("_".join(words)),
+        "first": _safe(words[0]),
+        "last": _safe(words[-1]),
+        "date": date.today().isoformat(),
+    }
+    if job:
+        fields.update(
+            company=_slug(job["company"]),
+            title=_slug(job["title"]),
+            hash=hashlib.md5((job.get("job_url") or job["title"]).encode()).hexdigest()[:6],
+        )
+    return fields
+
+
+def render_name(template: str, fields: dict) -> str:
+    """Fill a file-name template; a clear error if it uses a placeholder that doesn't exist."""
+    try:
+        return _safe(template.format(**fields))
+    except KeyError as e:
+        raise ValueError(
+            f"Unknown placeholder {e} in a file-name template in config/settings.py. "
+            f"Available: {', '.join('{' + k + '}' for k in fields)}"
+        ) from None
+
+
 def job_folder(job: dict, out_root: Path = OUTPUT_DIR) -> Path:
-    tag = hashlib.md5((job.get("job_url") or job["title"]).encode()).hexdigest()[:6]
-    return out_root / f"{_slug(job['company'])}_{_slug(job['title'])}_{tag}"
+    return Path(out_root) / render_name(APPLICATION_FOLDER, name_fields(load_resume(), job))
 
 
 def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = False) -> Path | None:
@@ -527,17 +501,28 @@ def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = Fal
     """
     folder = job_folder(job, out_root)
     if folder.exists() and not force:
-        print(f"[DOCS] Already exists, skipping: {folder.name}")
+        print(f"[APPLY] Already exists, skipping: {folder.name}")
         return None
 
     resume = load_resume()
+    # File names come from resume.json + the templates in config/settings.py. Render them first,
+    # so a typo in a template fails immediately, before any model time is spent.
+    fields = name_fields(resume, job)
+    resume_file = f"{render_name(RESUME_FILENAME, fields)}.docx"
+    letter_file = f"{render_name(COVER_LETTER_FILENAME, fields)}.docx"
+
     tailored = tailor_resume(job, resume)
     paragraphs, warnings = write_cover_letter(job, resume)
 
+    is_new_folder = not folder.exists()
     folder.mkdir(parents=True, exist_ok=True)
-    stem = re.sub(r"[^A-Za-z0-9]+", "_", resume["name"]).strip("_")  # recruiters see the file name
-    build_resume(resume, tailored, folder / f"{stem}_Resume.docx")
-    build_cover_letter(resume, job, paragraphs, folder / f"{stem}_Cover_Letter.docx")
+    try:
+        build_resume(resume, tailored, folder / resume_file)
+        build_cover_letter(resume, job, paragraphs, folder / letter_file)
+    except Exception:
+        if is_new_folder:  # don't leave a half-built folder that later runs would treat as done
+            shutil.rmtree(folder, ignore_errors=True)
+        raise
 
     job_text = f"{job['title']}\n{job.get('description') or ''}"
     have = matched_skills(job_text, resume.get("skills", []))
@@ -561,10 +546,10 @@ def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = Fal
         "- Read the cover letter; the model can be wrong or generic.",
         *[f"- WARNING: {w}" for w in warnings],
     ]
-    (folder / "notes.txt").write_text("\n".join(notes) + "\n", encoding="utf-8")
-    print(f"[DOCS] Created {folder}")
+    (folder / NOTES_FILENAME).write_text("\n".join(notes) + "\n", encoding="utf-8")
+    print(f"[APPLY] Created {folder}")
     for w in warnings:
-        print(f"[DOCS]   WARNING: {w}")
+        print(f"[APPLY]   WARNING: {w}")
     return folder
 
 
@@ -600,18 +585,18 @@ if __name__ == "__main__":
     else:
         raise SystemExit("Use --top N or --url JOB_URL (see --help).")
 
-    print(f"[DOCS] {len(jobs)} job(s), model: {MODEL}")
+    print(f"[APPLY] {len(jobs)} job(s), model: {MODEL}")
     made, failures = 0, 0
     for job in jobs:
-        print(f"\n[DOCS] {job['title'][:50]} - {job['company'][:30]}")
+        print(f"\n[APPLY] {job['title'][:50]} - {job['company'][:30]}")
         try:
             if create_application(job, force=args.force):
                 made += 1
             failures = 0
         except Exception as e:
             failures += 1
-            print(f"[DOCS] Failed: {e}")
+            print(f"[APPLY] Failed: {e}")
             if failures >= 3:
-                print("[DOCS] 3 failures in a row. Is Ollama running? Stopping.")
+                print("[APPLY] 3 failures in a row. Is Ollama running? Stopping.")
                 break
-    print(f"\n[DOCS] Done. {made} created in {OUTPUT_DIR}")
+    print(f"\n[APPLY] Done. {made} created in {OUTPUT_DIR}")
