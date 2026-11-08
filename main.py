@@ -16,6 +16,7 @@ from application_maker import create_application, job_folder
 from show_jobs import get_jobs
 from filters import filter_reason
 from calibration import blend, keyword_score
+from job_info import format_salary
 
 from config.settings import (
     DOC_MIN_SCORE, DOC_WINDOW_DAYS, HOURS_OLD, LOCATION, MAKE_DOCS, MAX_CONSECUTIVE_FAILURES,
@@ -37,6 +38,7 @@ def job_from_row(row) -> dict:
         "company": clean(row.get("company")),
         "location": clean(row.get("location")),
         "description": clean(row.get("description")),
+        "salary": format_salary(row.get("min_amount"), row.get("max_amount"), row.get("interval"), row.get("currency")),
     }
 
 

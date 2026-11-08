@@ -85,6 +85,9 @@ DEFAULT_MODEL_WEIGHT = 0.7      # before you rate any jobs: 70% model score, 30%
 MIN_RATINGS = 10                # fewest hand ratings needed to tune the scores
 RATING_BATCH_SIZE = 20          # jobs shown per `python rating.py`
 RATING_DESC_CHARS = 900         # how much of each description is shown while rating
+RATING_DESCRIPTION = "summary"  # "summary", "excerpt" (first RATING_DESC_CHARS characters) or "full"
+RATING_SUMMARY_BULLETS = 3      # bullets per section
+RATING_SHOW_MODEL_NOTES = True  # show the model's matched skills and gaps
 FIT_ON_ALL_RATINGS = True       # True = every rating you've ever made counts; False = latest batch only
 CALIBRATION_HISTORY_LIMIT = 50  # past calibrations kept in calibration.json
 SHOW_DEFAULT_COUNT = 10         # rows printed by `python show_jobs.py`

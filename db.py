@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     status TEXT DEFAULT 'scraped',
     model_score REAL,
     keyword_score REAL,
-    apply_url TEXT
+    apply_url TEXT,
+    salary TEXT
 );
 """
 
@@ -85,6 +86,8 @@ def init_db(db_path: str = DB_PATH) -> None:
         columns = {row[1] for row in cursor.execute("PRAGMA table_info(jobs)")}
         if "job_url" not in columns:
             cursor.execute("ALTER TABLE jobs ADD COLUMN job_url TEXT")
+        if "salary" not in columns:
+            cursor.execute("ALTER TABLE jobs ADD COLUMN salary TEXT")
         if "apply_url" not in columns:
             cursor.execute("ALTER TABLE jobs ADD COLUMN apply_url TEXT")
         if "keyword_score" not in columns:
@@ -124,8 +127,8 @@ def save_job(
 ) -> None:
     """Insert (or update, if the URL already exists) one scored job.
 
-    job:           site, job_url, title, company, location, description, apply_url (optional:
-                   the employer's own application link, when the job board gives one)
+    job:           site, job_url, title, company, location, description, apply_url and salary (both
+                   optional: the employer's own link and the pay range, when the job board gives them)
     score:         match_score (the final score), matched_skills, gaps
     status:        defaults to "scored" or "scoring_failed"; main.py passes "filtered"
     model_score:   the raw model score (defaults to match_score unless scoring failed)
@@ -143,8 +146,8 @@ def save_job(
                 """
                 INSERT INTO jobs
                     (site, job_url, title, company, location, description,
-                     match_score, matched_skills, gaps, status, model_score, keyword_score, apply_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     match_score, matched_skills, gaps, status, model_score, keyword_score, apply_url, salary)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(job_url) DO UPDATE SET
                     match_score = excluded.match_score,
                     matched_skills = excluded.matched_skills,
@@ -153,6 +156,7 @@ def save_job(
                     model_score = excluded.model_score,
                     keyword_score = excluded.keyword_score,
                     apply_url = COALESCE(excluded.apply_url, apply_url),
+                    salary = COALESCE(excluded.salary, salary),
                     is_retry = 1
                 """,
                 (
@@ -169,6 +173,7 @@ def save_job(
                     None if model_score is None else float(model_score),
                     None if keyword_score is None else float(keyword_score),
                     job.get("apply_url") or None,
+                    job.get("salary") or None,
                 ),
             )
     finally:

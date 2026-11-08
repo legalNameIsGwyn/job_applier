@@ -24,6 +24,7 @@ Every call:
 """
 
 import argparse
+import json
 import random
 import sqlite3
 import textwrap
@@ -32,8 +33,12 @@ from calibration import (
     CALIBRATION_FILE, DEFAULT_CALIBRATION, MIN_RATINGS, apply_calibration_to_db, calibration_history,
     clear_calibration, fit_calibration, keyword_score, load_calibration, save_calibration,
 )
-from config.settings import FIT_ON_ALL_RATINGS, RATING_BATCH_SIZE, RATING_DESC_CHARS
+from config.settings import (
+    FIT_ON_ALL_RATINGS, RATING_BATCH_SIZE, RATING_DESC_CHARS, RATING_DESCRIPTION, RATING_SHOW_MODEL_NOTES,
+    RATING_SUMMARY_BULLETS,
+)
 from db import DB_PATH, init_db
+from job_info import salary_from_text, special_notes, summary_points
 
 DEFAULT_BATCH = RATING_BATCH_SIZE  # all of these are set in config/settings.py
 DESC_CHARS = RATING_DESC_CHARS
@@ -41,7 +46,7 @@ DESC_CHARS = RATING_DESC_CHARS
 INSTRUCTIONS = """
 Rate each job from 0 to 10 for how well it fits YOU:
     0 = I would never apply / not eligible     5 = maybe     10 = ideal
-Type s to skip a job (it won't be offered again), q to stop and save.
+Type d to read the full posting, s to skip a job (it won't be offered again), q to stop and save.
 Scores are hidden so they don't influence you.
 """
 
@@ -58,6 +63,7 @@ def eligible_jobs(db_path: str = DB_PATH) -> list[dict]:
     try:
         rows = conn.execute(
             """SELECT j.job_url, j.title, j.company, j.location, j.description,
+                      j.matched_skills, j.gaps, j.salary,
                       COALESCE(j.model_score, j.match_score) AS model_score
                FROM jobs j LEFT JOIN ratings r ON r.job_url = j.job_url
                WHERE r.job_url IS NULL AND j.job_url IS NOT NULL
@@ -85,32 +91,85 @@ def pick_batch(jobs: list[dict], n: int, rng: random.Random) -> list[dict]:
     return batch
 
 
+def _json_list(value) -> list[str]:
+    try:
+        items = json.loads(value or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [str(i) for i in items] if isinstance(items, list) else []
+
+
+def _wrap(text: str, indent: str = "  ") -> str:
+    return textwrap.fill(text, 100, initial_indent=indent, subsequent_indent=indent + "  ")
+
+
 def _show_job(i: int, total: int, job: dict, show) -> None:
-    desc = " ".join((job["description"] or "").split())
+    """One job's card: pay, notes, (optionally) the model's skills and gaps, and the posting."""
+    description = job["description"] or ""
     show("\n" + "=" * 72)
     show(f"[{i}/{total}] {job['title']}")
     show(f"{job['company']}  |  {job['location']}")
     show(job["job_url"])
     show("-" * 72)
-    show(textwrap.fill(desc[:DESC_CHARS], 100) + (" ..." if len(desc) > DESC_CHARS else ""))
+
+    salary = job.get("salary")
+    if salary:
+        show(f"Salary: {salary}")
+    else:
+        quoted = salary_from_text(description)
+        show(f"Salary: {quoted} (quoted in the posting)" if quoted else "Salary: not listed")
+
+    notes = special_notes(job["title"], job["location"], description)
+    show("Special notes: " + ("; ".join(notes) if notes else "none"))
+
+    if RATING_SHOW_MODEL_NOTES:
+        skills, gaps = _json_list(job.get("matched_skills")), _json_list(job.get("gaps"))
+        show("Matching skills (model): " + (", ".join(skills) if skills else "none listed"))
+        show("Gaps (model): " + ("; ".join(gaps) if gaps else "none listed"))
+
+    show("-" * 72)
+    flat = " ".join(description.split())
+    if RATING_DESCRIPTION == "full":
+        show(textwrap.fill(flat, 100))
+        return
+    if RATING_DESCRIPTION == "excerpt":
+        show(textwrap.fill(flat[:RATING_DESC_CHARS], 100) + (" ..." if len(flat) > RATING_DESC_CHARS else ""))
+        return
+    points = summary_points(description, RATING_SUMMARY_BULLETS)
+    if not points:
+        show(textwrap.fill(flat[:RATING_DESC_CHARS], 100) + (" ..." if len(flat) > RATING_DESC_CHARS else ""))
+    for section, bullets in points.items():
+        show(f"{section}:")
+        for bullet in bullets:
+            show(_wrap("- " + bullet))
+    show("(d = read the full posting)")
 
 
-def _ask_rating(ask) -> float | None | str:
-    """Returns a rating (0-10), None for skip, or 'quit'."""
+def _show_full(job: dict, show) -> None:
+    show("\n" + "-" * 72)
+    show(textwrap.fill(" ".join((job["description"] or "").split()), 100))
+    show("-" * 72)
+
+
+def _ask_rating(ask, on_detail=None) -> float | None | str:
+    """Returns a rating (0-10), None for skip, or 'quit'. d shows the full posting first."""
     while True:
-        raw = ask("Your rating 0-10 (s = skip, q = quit): ").strip().lower()
+        raw = ask("Your rating 0-10 (d = full posting, s = skip, q = quit): ").strip().lower()
         if raw in ("q", "quit"):
             return "quit"
         if raw in ("s", "skip"):
             return None
+        if raw in ("d", "desc", "full") and on_detail:
+            on_detail()
+            continue
         try:
             value = float(raw)
         except ValueError:
-            print("  Enter a number from 0 to 10, or s / q.")
+            print("  Enter a number from 0 to 10, or d / s / q.")
             continue
         if 0 <= value <= 10:
             return value
-        print("  Enter a number from 0 to 10, or s / q.")
+        print("  Enter a number from 0 to 10, or d / s / q.")
 
 
 def _strength(rho) -> str:
@@ -236,7 +295,7 @@ def rate_jobs(
     rated = 0
     for i, job in enumerate(batch, start=1):
         _show_job(i, len(batch), job, show)
-        answer = _ask_rating(ask)
+        answer = _ask_rating(ask, lambda job=job: _show_full(job, show))
         if answer == "quit":
             break
         conn = _connect(db_path)
