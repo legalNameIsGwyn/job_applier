@@ -19,10 +19,19 @@ ENABLED_SITES = {
     "lever": True,
     "ashby": True,
     "workday": True,
-    "linkedin": False,   # opt-in: LinkedIn's terms forbid automation and it can restrict your account
+    "linkedin": True,   # opt-in: LinkedIn's terms forbid automation and it can restrict your account
     "indeed": False,     # opt-in: same risk
 }
 
+AUTO_FIND_LINKS = False
+FIND_LINKS_MAX = 25   # most LinkedIn pages to read per run
+
+LINKEDIN_CLICK_APPLY = True      # opt-in; set False to turn it off
+LINKEDIN_CLICK_MAX = 10          # most LinkedIn postings to click through per run
+LINKEDIN_CLICK_DELAY = (8, 20)   # random pause in seconds between postings
+CHECK_STILL_OPEN = True
+WORKDAY_AUTO_ADVANCE = True
+WORKDAY_MAX_STEPS = 12
 # ---------------------------------------------------------------------- browser
 BROWSER_PROFILE_DIR = PROJECT_DIR / "browser_profile"  # keeps your logins between runs
 HEADLESS = False           # leave False: you need to see and review the form

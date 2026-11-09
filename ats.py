@@ -12,8 +12,14 @@ ATS_PATTERNS = {
     "indeed": r"indeed\.com",
 }
 
+# Stored as a job's apply_url when its LinkedIn page was checked and has no employer link
+# (typically LinkedIn Easy Apply). Distinguishes "checked, none" from "never checked" (empty).
+NO_LINK = "none"
+CLICK_CHECKED = "none:clicked"   # also tried by clicking Apply in the logged-in browser; still no link
+NO_LINK_MARKERS = (NO_LINK, CLICK_CHECKED)
+
 # Sites with a filler built so far.
-IMPLEMENTED = {"greenhouse", "lever", "ashby"}
+IMPLEMENTED = {"greenhouse", "lever", "ashby", "workday"}
 
 
 def detect_ats(url: str | None) -> str | None:

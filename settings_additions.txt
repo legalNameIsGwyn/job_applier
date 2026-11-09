@@ -1,0 +1,12 @@
+# ---- add to config/apply_settings.py ----
+# In ENABLED_SITES add this line (covers iCIMS, Taleo, SmartRecruiters, Workable, SuccessFactors, employer sites...):
+#     "generic": True,
+GENERIC_AUTO_ADVANCE = True   # click Next/Continue on its own when nothing on the page needs you
+GENERIC_MAX_STEPS = 10        # most pages to walk through on one application
+
+# ---- add to config/settings.py ----
+SUMMARY_AFTER_RUN = True      # print the summary at the end of main.py
+SUMMARY_DAYS = 1              # how far back "new" reaches
+SUMMARY_TOP = 10              # best matches listed
+SUMMARY_MIN_SCORE = 6         # what counts as a match
+# SUMMARY_DIR = PROJECT_DIR / "reports"   # optional: where --html reports are saved

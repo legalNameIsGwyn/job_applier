@@ -1,10 +1,12 @@
 """Job Scraper using JobSpy library with async orchestration."""
 
 import asyncio
+import html as _html
 import inspect
 import random
 import re
 import time
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import pandas as pd
 from jobspy import scrape_jobs
@@ -13,7 +15,7 @@ from config.settings import (
     AVAILABLE_SITES, COUNTRY_INDEED, DEFAULT_HOURS_OLD, DEFAULT_RESULTS_WANTED, DELAY_BETWEEN_SEARCH_TERMS,
     DESCRIPTION_FETCH_DELAY, DESCRIPTION_FETCH_TIMEOUT, RATE_LIMIT_BACKOFF_SECONDS, RATE_LIMIT_STOP_AFTER,
     LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS, LINKEDIN_RESULTS_WANTED, USER_AGENT,
-) 
+)  # all tunable in config/settings.py
 
 try:  # both are normally installed alongside jobspy
     import requests
@@ -79,13 +81,49 @@ def _parse_linkedin_description(html: str) -> str:
     return node.get_text("\n", strip=True)
 
 
-def _fetch_linkedin_description(session, job_id: str) -> str:
+def _unwrap_external(link: str) -> str | None:
+    """The employer's URL from a LinkedIn redirect like .../externalApply/123?url=<encoded>, else None."""
+    link = _html.unescape(link).strip().strip('"\' ')
+    query = parse_qs(urlsplit(link).query)
+    target = unquote(query["url"][0]) if "url" in query else link
+    if re.match(r"https?%3a", target, re.I):  # encoded twice
+        target = unquote(target)
+    host = urlsplit(target).netloc.lower()
+    if not target.lower().startswith("http") or not host or host.endswith("linkedin.com"):
+        return None
+    return target
+
+
+def _parse_linkedin_apply_link(html: str) -> str | None:
+    """The employer's own application URL from a LinkedIn job page, or None (e.g. Easy Apply).
+
+    LinkedIn's public job page carries the Apply button's link in a hidden <code id="applyUrl">
+    comment and on the button itself, as a redirect holding the employer's URL in ?url=...
+    All the places it can appear are checked.
+    """
+    candidates = re.findall(r'id="applyUrl"[^>]*>\s*<!--\s*"?(.*?)"?\s*-->', html, re.S)
+    soup = BeautifulSoup(html, "html.parser")
+    for a in soup.select('a.apply-button, a[data-tracking-control-name*="apply"], a[href*="externalApply"]'):
+        if a.get("href"):
+            candidates.append(a["href"])
+    candidates += re.findall(r"externalApply/\d+\?[^\"'\s<>]+", html.replace("\\/", "/"))  # also inside script JSON
+    for link in candidates:
+        target = _unwrap_external(link)
+        if target:
+            return target
+    return None
+
+
+def _fetch_linkedin_page(session, job_id: str) -> str:
+    """The HTML of LinkedIn's public job posting ('' if unavailable). Raises _RateLimited on 429."""
     resp = session.get(LINKEDIN_JOB_API.format(job_id=job_id), timeout=DESCRIPTION_FETCH_TIMEOUT)
     if resp.status_code == 429:
         raise _RateLimited()
-    if resp.status_code != 200:
-        return ""
-    return _parse_linkedin_description(resp.text)
+    return resp.text if resp.status_code == 200 else ""
+
+
+def _fetch_linkedin_description(session, job_id: str) -> str:
+    return _parse_linkedin_description(_fetch_linkedin_page(session, job_id))
 
 
 def fill_missing_descriptions(
@@ -129,7 +167,9 @@ def fill_missing_descriptions(
         if not job_id:
             continue
         try:
-            text = _fetch_linkedin_description(session, job_id)
+            page = _fetch_linkedin_page(session, job_id)
+            text = _parse_linkedin_description(page) if page else ""
+            link = _parse_linkedin_apply_link(page) if page else None  # usually absent: LinkedIn hides it
             rate_limited_in_a_row = 0
         except _RateLimited:
             rate_limited_in_a_row += 1
@@ -147,6 +187,13 @@ def fill_missing_descriptions(
         if text:
             df.at[idx, "description"] = text
             filled += 1
+        # If the page does carry the employer's apply link, keep it (unless JobSpy already gave one).
+        if link:
+            if "job_url_direct" not in df.columns:
+                df["job_url_direct"] = None
+                df["job_url_direct"] = df["job_url_direct"].astype(object)
+            if _is_blank(df.at[idx, "job_url_direct"]):
+                df.at[idx, "job_url_direct"] = link
         if n % 10 == 0:
             print(f"[SCRAPER] Fetched {n}/{len(missing)} pages ({filled} descriptions)")
         time.sleep(random.uniform(min_delay, max_delay))
@@ -170,7 +217,6 @@ async def scrape_sites(
         config["hours_old"] = hours_old
 
     normalized_site = site_name.lower().replace(" ", "")
-
     if normalized_site == "linkedin":
         config["results_wanted"] = min(config["results_wanted"], LINKEDIN_RESULTS_WANTED)
 

@@ -24,6 +24,8 @@ ANSWER_RULES = [
     (r"last name|family name|surname", "{last}"),
     (r"full name|^name\b|your name", "{full}"),
     (r"e-?mail", "{email}"),
+    (r"phone device type|device type", ["Mobile", "Cell"]),
+    (r"country phone code|phone code", ["United States of America (+1)", "United States (+1)", "+1"]),
     (r"phone|mobile|cell", "{phone_national}"),
     (r"linkedin", ""),                      # not in resume.json; add a "linkedin" key to contact there
     (r"github", "{github_url}"),

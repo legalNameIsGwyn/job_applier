@@ -46,13 +46,19 @@ SCAN_JS = r"""
     return '';
   };
 
+  document.querySelectorAll('[data-aj]').forEach(e => e.removeAttribute('data-aj'));  // ids from an earlier scan
   const out = [], radios = {};
   let n = 0;
-  for (const c of document.querySelectorAll('input, select, textarea')) {
-    const t = (c.type || '').toLowerCase();
+  for (const c of document.querySelectorAll('input, select, textarea, button[aria-haspopup="listbox"]')) {
+    const isList = c.tagName === 'BUTTON';
+    const t = isList ? 'listbox' : (c.type || '').toLowerCase();
     if (['hidden', 'submit', 'button', 'image', 'reset', 'password'].includes(t)) continue;
     if (c.disabled || c.getAttribute('aria-hidden') === 'true') continue;
     const boxy = t === 'radio' || t === 'checkbox';
+    // Radios, checkboxes and file inputs are often styled invisible with a visible label or wrapper,
+    // so for those the parent counts. Anything inside a hidden section (an earlier wizard page) is skipped.
+    const shown = vis(c) || (c.parentElement && vis(c.parentElement));
+    if (!shown && (boxy || t === 'file')) continue;
     if (t !== 'file' && !boxy && (!vis(c) || c.tabIndex === -1)) continue;   // skips honeypot fields
     c.setAttribute('data-aj', String(n));
     const id = String(n++);
@@ -60,6 +66,11 @@ SCAN_JS = r"""
     const required = c.required || c.getAttribute('aria-required') === 'true' || /[*✱]/.test(raw);
     const label = raw.replace(/[*✱]/g, '').replace(/\s+/g, ' ').trim();
 
+    if (isList) {
+      const shown = txt(c);
+      out.push({ id, kind: 'combobox', label, required, options: [], value: /^(select|choose)/i.test(shown) ? '' : shown });
+      continue;
+    }
     if (t === 'radio') {
       const key = c.name || ('r' + id);
       (radios[key] = radios[key] || []).push(c);
@@ -89,6 +100,8 @@ SCAN_JS = r"""
   return out;
 }
 """
+
+OPTIONS = '[role="option"], [role="listbox"] li'
 
 FORM_FIELDS = "input[type=file], textarea, input[type=text], input[type=email], input[type=tel]"
 
@@ -185,6 +198,8 @@ def fill_form(frame, answerer: Answerer, resume_file: Path | None, letter_file: 
                 options = _open_combobox_options(frame, loc(f["id"]))
             value, source = answerer.answer({"label": label, "kind": kind, "options": options})
 
+            if kind == "combobox" and (value is None or value == ""):
+                _close_dropdown(frame)  # we opened it to read the choices; leave it closed
             if value is None:
                 if f["required"] or source == "never":
                     why = "left for you (legal statement)" if source == "never" else "required, no answer"
@@ -212,7 +227,8 @@ def fill_form(frame, answerer: Answerer, resume_file: Path | None, letter_file: 
             if source == "draft":
                 report.attention.append((label, "drafted by the model: read it before sending"))
         except Exception as e:  # one bad field must not stop the rest
-            report.attention.append((label, f"could not fill it ({type(e).__name__})"))
+            detail = " ".join(str(e).split())[:90]
+            report.attention.append((label, f"could not fill it ({type(e).__name__}: {detail})"))
     return report
 
 
@@ -221,20 +237,31 @@ def _open_combobox_options(frame, box) -> list[str]:
     try:
         box.click(timeout=2000)
         frame.wait_for_timeout(300)
-        return [t.strip() for t in frame.locator('[role="option"]').filter(visible=True).all_inner_texts() if t.strip()]
+        return [t.strip() for t in frame.locator(OPTIONS).filter(visible=True).all_inner_texts() if t.strip()]
     except Exception:
         return []
 
 
+def _close_dropdown(frame) -> None:
+    try:
+        (frame.page if hasattr(frame, "page") else frame).keyboard.press("Escape")
+    except Exception:
+        pass
+
+
 def _choose_combobox(frame, box, value: str) -> None:
     """Pick `value` from a dropdown widget, typing to filter if the list loads on typing."""
-    box.click(timeout=2000)
-    texts = [t.strip() for t in frame.locator('[role="option"]').filter(visible=True).all_inner_texts()]
+    if not frame.locator(OPTIONS).filter(visible=True).count():  # not already open from reading its options
+        box.click(timeout=2000)
+    texts = [t.strip() for t in frame.locator(OPTIONS).filter(visible=True).all_inner_texts()]
     if not texts:
-        box.fill(value)
+        try:
+            box.fill(value)  # a type-to-search box (not available on button dropdowns)
+        except Exception:
+            pass
         frame.wait_for_timeout(500)
-        texts = [t.strip() for t in frame.locator('[role="option"]').filter(visible=True).all_inner_texts()]
+        texts = [t.strip() for t in frame.locator(OPTIONS).filter(visible=True).all_inner_texts()]
     chosen = pick_option(value, texts) or (texts[0] if texts else None)
     if not chosen:
         raise ValueError("no options appeared")
-    frame.locator('[role="option"]').filter(has_text=chosen).filter(visible=True).first.click(timeout=2000)
+    frame.locator(OPTIONS).filter(has_text=chosen).filter(visible=True).first.click(timeout=2000)

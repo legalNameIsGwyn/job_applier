@@ -14,9 +14,10 @@ from scraper import fill_missing_descriptions, scrape_multiple_terms
 from scorer import MODEL, load_resume, score_job
 from application_maker import create_application, job_folder
 from show_jobs import get_jobs
+from dedupe import duplicate_gap, load_known
 from filters import filter_reason
-from calibration import blend, keyword_score
 from job_info import format_salary
+from calibration import blend, keyword_score
 
 from config.settings import (
     DOC_MIN_SCORE, DOC_WINDOW_DAYS, HOURS_OLD, LOCATION, MAKE_DOCS, MAX_CONSECUTIVE_FAILURES,
@@ -38,6 +39,7 @@ def job_from_row(row) -> dict:
         "company": clean(row.get("company")),
         "location": clean(row.get("location")),
         "description": clean(row.get("description")),
+        "apply_url": clean(row.get("job_url_direct")),  # the employer's own link, when the board gives one
         "salary": format_salary(row.get("min_amount"), row.get("max_amount"), row.get("interval"), row.get("currency")),
     }
 
@@ -182,6 +184,8 @@ async def main(
     # Step 4: Score each job and save it immediately
     results = []
     consecutive_failures = 0
+    known = load_known()   # jobs already scored, to spot the same posting listed again
+    duplicates = 0
 
     for i, (_, row) in enumerate(todo.iterrows(), start=1):
         job = job_from_row(row)
@@ -192,6 +196,14 @@ async def main(
             print(f"\n[FILTER] {job['title'][:50]}: {reason}")
             save_filtered(job, reason)
             filtered_count += 1
+            continue
+
+        original = known.duplicate_of(job)
+        if original:
+            print(f"\n[DEDUPE] {job['title'][:50]} - {job['company'][:25]}: duplicate of {original['company'][:25]}")
+            save_job(job, {"match_score": 0.0, "matched_skills": [], "gaps": duplicate_gap(original)},
+                     status="duplicate", model_score=0.0)
+            duplicates += 1
             continue
 
         print(f"\n[SCORER] Scoring job {i}/{len(todo)}: {job['title'][:50]}...")
@@ -214,6 +226,7 @@ async def main(
         if score["match_score"] >= 0:
             print(f"[SCORER] Score: {score['match_score']}  (model {model_score:g}, keywords {keyword:g})")
             results.append((score["match_score"], job))
+            known.add(job)
 
         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
             print(f"\n[PIPELINE] {MAX_CONSECUTIVE_FAILURES} failures in a row. Is Ollama running "
@@ -222,7 +235,8 @@ async def main(
 
     # Step 5: Summary
     print("\n[PIPELINE] Pipeline complete!")
-    print(f"Scored {len(results)} jobs this run, filtered out {filtered_count}. Database: {DB_PATH}")
+    print(f"Scored {len(results)} jobs this run, filtered out {filtered_count}, "
+          f"skipped {duplicates} duplicates. Database: {DB_PATH}")
 
     if any(score > 0 for score, _ in results):
         print("\nTop matches this run:")
