@@ -1,5 +1,6 @@
-data/resume.json
-data/jobs_db.sqlite
-data/calibration.json
+data/
+data/
+data/
 browser_profile/
 archive/
+applications/
