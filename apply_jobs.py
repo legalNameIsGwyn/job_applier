@@ -19,7 +19,7 @@ For each job it opens the application, uploads this job's resume and cover lette
 first if needed), fills every field it has an answer for, and then waits. Read the form, fix
 anything wrong, press Submit yourself, then tell the terminal what happened.
 
-First time only:   pip install playwright    then    playwright install chromium
+First time only:   pip install playwright    then    python -m playwright install firefox
 Settings: config/apply_settings.py (which jobs, which sites)   config/answers.py (the answers)
 """
 
@@ -44,6 +44,7 @@ from job_status import check_open, closed_in_text
 from scorer import load_resume
 
 # Optional settings (defaults apply if config/apply_settings.py doesn't have them yet)
+BROWSER = getattr(_cfg, "BROWSER", "firefox")   # "firefox" or "chromium" (config/apply_settings.py)
 GENERIC_AUTO_ADVANCE = getattr(_cfg, "GENERIC_AUTO_ADVANCE", True)
 GENERIC_MAX_STEPS = getattr(_cfg, "GENERIC_MAX_STEPS", 10)
 
@@ -135,7 +136,7 @@ def find_employer_links(jobs: list[dict]) -> int:
 
 
 def _open_profile(playwright):
-    return playwright.chromium.launch_persistent_context(
+    return getattr(playwright, BROWSER).launch_persistent_context(
         str(BROWSER_PROFILE_DIR), headless=HEADLESS, slow_mo=SLOW_MO_MS, no_viewport=True)
 
 
@@ -293,7 +294,8 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False)
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        print("[APPLY] Playwright isn't installed. Run:  pip install playwright   then   playwright install chromium")
+        print("[APPLY] Playwright isn't installed. Run:  pip install playwright   then   "
+              f"python -m playwright install {BROWSER}")
         return
 
     done = 0
