@@ -1,6 +1,18 @@
+# personal data and logins
 data/
-data/
-data/
-browser_profile/
-archive/
 applications/
+browser_profile/
+learned_answers.json
+reports/
+jobs.csv
+jobs_db.sqlite
+*.sqlite
+
+# debug output and scratch
+archive/
+linkedin_check.*
+page_*.html
+
+# python
+__pycache__/
+*.pyc

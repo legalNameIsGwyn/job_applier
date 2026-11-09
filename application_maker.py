@@ -32,6 +32,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
 
+import config.keywords as _keywords
 from config.keywords import COMMON_TERMS, SKILL_ALIASES
 from config.settings import (
     APPLICATION_FOLDER, APPLICATIONS_DIR, COVER_LETTER_FILENAME, COVER_LETTER_GREETING, COVER_LETTER_SIGN_OFF,
@@ -97,8 +98,14 @@ def slop_flags(text: str) -> list[str]:
 # SKILL_ALIASES and COMMON_TERMS are edited in config/keywords.py
 
 
+# Terms that are also ordinary English words ("go above and beyond", "swift response"). They only
+# count when written exactly as given. Add more in config/keywords.py (CASE_SENSITIVE_TERMS).
+CASE_SENSITIVE_TERMS = set(getattr(_keywords, "CASE_SENSITIVE_TERMS", ("Go", "Swift")))
+
+
 def _term_regex(term: str) -> re.Pattern:
-    return re.compile(r"(?<![A-Za-z0-9+#.])" + re.escape(term) + r"(?![A-Za-z0-9+#])", re.I)
+    flags = 0 if term in CASE_SENSITIVE_TERMS else re.I
+    return re.compile(r"(?<![A-Za-z0-9+#.])" + re.escape(term) + r"(?![A-Za-z0-9+#])", flags)
 
 
 def matched_skills(job_text: str, skills: list[str]) -> list[str]:

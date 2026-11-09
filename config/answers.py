@@ -26,7 +26,7 @@ ANSWER_RULES = [
     (r"e-?mail", "{email}"),
     (r"phone device type|device type", ["Mobile", "Cell"]),
     (r"country phone code|phone code", ["United States of America (+1)", "United States (+1)", "+1"]),
-    (r"phone|mobile|cell", "{phone_national}"),
+    (r"phone|mobile|\bcell\b", "{phone_national}"),
     (r"linkedin", ""),                      # not in resume.json; add a "linkedin" key to contact there
     (r"github", "{github_url}"),
     (r"gitlab", "{gitlab_url}"),
@@ -34,7 +34,7 @@ ANSWER_RULES = [
     (r"\bcity\b", "{city}"),
     (r"\bstate\b|province", "{state}"),
     (r"zip|postal", ""),
-    (r"current location|where are you (located|based)|location", "{location}"),
+    (r"current location|where are you (located|based)|(?<!re)location", "{location}"),
     (r"country", ["United States", "United States of America", "USA", "US"]),
 
     # ---- work authorization (order matters: "without sponsorship" means Yes)

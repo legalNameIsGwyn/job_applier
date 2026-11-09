@@ -81,7 +81,8 @@ def resume_values(resume: dict) -> dict:
         digits = digits[1:]
     phone_national = f"{digits[:3]}-{digits[3:6]}-{digits[6:]}" if len(digits) == 10 else contact.get("phone", "")
     location = contact.get("location", "")
-    city, _, state = (part.strip() for part in location.partition(","))
+    parts = [part.strip() for part in location.split(",")]
+    city, state = parts[0], (parts[1] if len(parts) > 1 else "")   # "Norfolk, VA, United States" -> VA
 
     def url(value: str, base: str) -> str:
         value = (value or "").strip()

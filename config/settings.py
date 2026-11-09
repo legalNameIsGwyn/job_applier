@@ -91,3 +91,9 @@ RATING_SHOW_MODEL_NOTES = True  # show the model's matched skills and gaps
 FIT_ON_ALL_RATINGS = True       # True = every rating you've ever made counts; False = latest batch only
 CALIBRATION_HISTORY_LIMIT = 50  # past calibrations kept in calibration.json
 SHOW_DEFAULT_COUNT = 10         # rows printed by `python show_jobs.py`
+
+SUMMARY_AFTER_RUN = True      # print the summary at the end of main.py
+SUMMARY_DAYS = 1              # how far back "new" reaches
+SUMMARY_TOP = 10              # best matches listed
+SUMMARY_MIN_SCORE = 6         # what counts as a match
+SUMMARY_DIR = PROJECT_DIR / "reports"   # optional: where --html reports are saved

@@ -206,6 +206,8 @@ def fill_form(frame, answerer: Answerer, resume_file: Path | None, letter_file: 
                     report.attention.append((label, why))
                 continue
             if value == "":
+                if f["required"]:  # a rule says "leave blank", but the site wants something here
+                    report.attention.append((label, "required, but resume.json has no value for it"))
                 continue
 
             if kind in ("text", "textarea"):

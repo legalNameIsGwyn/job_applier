@@ -29,17 +29,23 @@ from pathlib import Path
 
 from answering import Answerer
 from application_maker import create_application, job_folder, name_fields, render_name
-from ats import CLICK_CHECKED, IMPLEMENTED, NO_LINK, NO_LINK_MARKERS, application_url, detect_ats
+from ats import (CLICK_CHECKED, GENERIC_SITES, IMPLEMENTED, NO_LINK, NO_LINK_MARKERS, application_url, detect_ats,
+                 site_key)
 from config.apply_settings import (
     APPLY_MAX_PER_RUN, APPLY_MIN_SCORE, APPLY_WINDOW_DAYS, AUTO_FIND_LINKS, BROWSER_PROFILE_DIR, ENABLED_SITES,
     CHECK_STILL_OPEN, FIND_LINKS_MAX, HEADLESS, LINKEDIN_CLICK_APPLY, LINKEDIN_CLICK_DELAY, LINKEDIN_CLICK_MAX, PAGE_TIMEOUT_MS,
     SLOW_MO_MS, WORKDAY_AUTO_ADVANCE, WORKDAY_MAX_STEPS,
 )
+import config.apply_settings as _cfg
 from config.settings import COVER_LETTER_FILENAME, RESUME_FILENAME
 from db import DB_PATH, init_db, record_application, set_apply_url
 from form_filler import fill_form, open_application
 from job_status import check_open, closed_in_text
 from scorer import load_resume
+
+# Optional settings (defaults apply if config/apply_settings.py doesn't have them yet)
+GENERIC_AUTO_ADVANCE = getattr(_cfg, "GENERIC_AUTO_ADVANCE", True)
+GENERIC_MAX_STEPS = getattr(_cfg, "GENERIC_MAX_STEPS", 10)
 
 JOB_COLUMNS = ("title", "company", "location", "job_url", "description", "match_score", "apply_url", "site")
 
@@ -72,16 +78,19 @@ def target_for(job: dict) -> tuple[str | None, str | None, str | None]:
     which only works if that link itself is a Greenhouse / Lever / Ashby page.
     """
     if job.get("apply_url") in NO_LINK_MARKERS:
-        return job["job_url"], "linkedin", ("no direct application page found (not on a Greenhouse, Lever or Ashby "
-                                            "board, or it's Easy Apply); use --set-url if you have the link")
+        return job["job_url"], "linkedin", ("no employer application link found (it may be LinkedIn Easy Apply); "
+                                            "use --set-url if you have the link")
     link = job.get("apply_url") or job["job_url"]
     ats = detect_ats(link)
     if ats == "linkedin" and not job.get("apply_url"):
         return link, ats, "employer link not looked up yet (raise LINKEDIN_CLICK_MAX, or run again)"
     if ats is None:
         return link, None, "not a supported application site (use --set-url to give the employer's link)"
-    if not ENABLED_SITES.get(ats, False):
-        return link, ats, f"{ats} is turned off in config/apply_settings.py"
+    if ats == "jobboard":
+        return link, ats, "that's a job board, not an application page (use --set-url with the employer's link)"
+    key = site_key(ats)
+    if not ENABLED_SITES.get(key, key == "generic"):   # "generic" is on unless you turn it off
+        return link, ats, f"{key} is turned off in config/apply_settings.py"
     if ats not in IMPLEMENTED:
         return link, ats, f"the {ats} filler isn't built yet"
     return application_url(ats, link), ats, None
@@ -132,7 +141,10 @@ def _open_profile(playwright):
 
 def resolve_via_linkedin(jobs: list[dict]) -> int:
     """Opt-in: click Apply on LinkedIn (in your logged-in browser) for jobs the board search missed."""
-    from archive.linkedin_resolver import resolve_links
+    try:
+        from linkedin_resolver import resolve_links
+    except ImportError:  # the file was moved into archive
+        from archive.linkedin_resolver import resolve_links
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -206,6 +218,13 @@ def apply_to_job(context, job: dict, url: str, ats: str, ask=input, answerer=Non
                                               max_steps=WORKDAY_MAX_STEPS)
             if outcome == "closed":
                 return "closed"
+        elif ats in GENERIC_SITES:
+            import generic
+            outcome = generic.run_application(page, url, answerer, resume_file, letter_file, ask=ask, show=print,
+                                              show_report=print_report, auto_advance=GENERIC_AUTO_ADVANCE,
+                                              max_steps=GENERIC_MAX_STEPS, timeout_ms=PAGE_TIMEOUT_MS)
+            if outcome == "closed":
+                return "closed"
         else:
             frame = open_application(page, url, PAGE_TIMEOUT_MS)
             try:
@@ -265,7 +284,7 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False)
             print(f"[APPLY] closed {label}\n          the posting is no longer open")
             record_application(job["job_url"], "closed", apply_url=link, ats=ats)
         else:
-            print(f"[APPLY] ready {label}  [{ats}]")
+            print(f"[APPLY] ready {label}  [{ats}{' - generic filler, best effort' if ats in GENERIC_SITES else ''}]")
             ready.append((job, link, ats))
     print(f"\n[APPLY] {len(ready)} of {len(jobs)} job(s) can be filled.")
     if list_only or not ready:

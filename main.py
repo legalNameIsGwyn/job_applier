@@ -5,6 +5,7 @@ What to search for, which model to use and every other setting is in config/sett
 """
 
 import asyncio
+import config.settings as _settings
 from datetime import datetime
 
 import pandas as pd
@@ -23,6 +24,17 @@ from config.settings import (
     DOC_MIN_SCORE, DOC_WINDOW_DAYS, HOURS_OLD, LOCATION, MAKE_DOCS, MAX_CONSECUTIVE_FAILURES,
     MAX_DOCS_PER_RUN, RESULTS_WANTED, SEARCH_TERMS, SITES,
 )
+
+
+def show_summary() -> None:
+    """Print the end-of-run summary (SUMMARY_AFTER_RUN in config/settings.py). Never breaks a run."""
+    if not getattr(_settings, "SUMMARY_AFTER_RUN", True):
+        return
+    try:
+        from summary import print_summary
+        print_summary()
+    except Exception as e:
+        print(f"[SUMMARY] Skipped: {e}")
 
 
 def clean(value) -> str:
@@ -136,6 +148,7 @@ async def main(
 
     if df.empty:
         print("[SCRAPER] No jobs found, exiting.")
+        show_summary()
         return
 
     df = df.drop_duplicates(subset="job_url").reset_index(drop=True)
@@ -179,6 +192,7 @@ async def main(
                   "wait a while or lower results_wanted.")
         if make_docs:  # still catch up on documents for jobs scored earlier
             generate_documents(doc_min_score, max_docs)
+        show_summary()
         return
 
     # Step 4: Score each job and save it immediately
@@ -248,6 +262,8 @@ async def main(
     # Step 6: Resume + cover letter for the best matches
     if make_docs:
         generate_documents(doc_min_score, max_docs)
+
+    show_summary()
 
     print("\n" + "=" * 50)
 
