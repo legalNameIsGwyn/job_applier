@@ -40,3 +40,5 @@ COMMON_TERMS = [
     "Oracle", "CI/CD", "Jenkins", "Terraform", "GraphQL", "Selenium", "Agile", "Scrum", "Kotlin", "Swift",
     "Tableau", "Power BI", "Splunk", "ServiceNow",
 ]
+
+CASE_SENSITIVE_TERMS = ["Go", "Swift"]

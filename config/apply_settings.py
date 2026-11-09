@@ -21,7 +21,11 @@ ENABLED_SITES = {
     "workday": True,
     "linkedin": True,   # opt-in: LinkedIn's terms forbid automation and it can restrict your account
     "indeed": False,     # opt-in: same risk
+    "generic": True,     # iCIMS, Taleo, SmartRecruiters, Workable, employer career pages...
 }
+
+GENERIC_AUTO_ADVANCE = True   # click Next/Continue on its own when nothing on the page needs you
+GENERIC_MAX_STEPS = 10        # most pages to walk through on one application
 
 AUTO_FIND_LINKS = False
 FIND_LINKS_MAX = 25   # most LinkedIn pages to read per run
@@ -43,3 +47,4 @@ LEARNED_ANSWERS_FILE = PROJECT_DIR / "learned_answers.json"  # answers you typed
 ASK_ABOUT_UNKNOWN = True   # True = stop and ask in the terminal when a question has no answer rule
 DRAFT_FREE_TEXT = True     # True = the local model drafts answers to long "why us?" style questions
 FREE_TEXT_MAX_WORDS = 120  # length limit for those drafts
+
