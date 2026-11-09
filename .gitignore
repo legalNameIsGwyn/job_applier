@@ -1,6 +1,5 @@
 data/
-data/
-data/
+__pycache__/
 browser_profile/
 archive/
 applications/
