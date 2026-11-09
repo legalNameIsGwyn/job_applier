@@ -18,6 +18,7 @@ try:
     import linkedin_resolver as lr
 except ImportError:  # the file was moved into archive
     import archive.linkedin_resolver as lr
+import config.apply_settings as _cfg
 from config.apply_settings import BROWSER_PROFILE_DIR
 
 if len(sys.argv) < 2:
@@ -26,7 +27,7 @@ url = sys.argv[1] if "://" in sys.argv[1] else f"https://www.linkedin.com/jobs/v
 headless = "--headless" in sys.argv
 
 with sync_playwright() as p:
-    context = p.chromium.launch_persistent_context(str(BROWSER_PROFILE_DIR), headless=headless, no_viewport=True)
+    context = getattr(p, getattr(_cfg, "BROWSER", "firefox")).launch_persistent_context(str(BROWSER_PROFILE_DIR), headless=headless, no_viewport=True)
     try:
         print(f"Tabs already open in this profile: {[pg.url for pg in context.pages]}")
         page = context.new_page()

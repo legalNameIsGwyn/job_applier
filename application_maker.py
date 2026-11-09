@@ -243,14 +243,35 @@ def tailor_resume(job: dict, resume: dict) -> dict:
 
 
 def _parse_letter(raw: dict) -> list[str]:
-    """Clean the model's paragraphs: drop greetings/sign-offs, fix punctuation, reject placeholders."""
+    """Clean the model's letter: split it into paragraphs, drop greetings/sign-offs, reject placeholders.
+
+    Small models sometimes return the whole letter as one string, put line breaks inside one array
+    item, or use a different key, so all of those are accepted.
+    """
+    items = raw.get("paragraphs")
+    if items is None:
+        items = next((raw[k] for k in ("paragraph", "letter", "cover_letter", "body", "text") if k in raw), [])
+    if isinstance(items, str):
+        items = [items]
+    pieces = []
+    for item in items or []:
+        pieces.extend(re.split(r"\n+", str(item)))  # clean_style would otherwise merge the line breaks
+
     paragraphs = []
-    for p in raw.get("paragraphs", []):
-        p = clean_style(str(p))
+    for p in pieces:
+        p = clean_style(p)
         if p and not re.match(r"(dear|sincerely|best regards|regards)\b", p, re.I):
             paragraphs.append(p)
+
+    if len(paragraphs) == 1 and len(paragraphs[0].split()) >= 60:  # one block: cut it into three
+        sentences = re.split(r"(?<=[.!?])\s+", paragraphs[0])
+        if len(sentences) >= 3:
+            size = -(-len(sentences) // 3)
+            paragraphs = [" ".join(sentences[i:i + size]) for i in range(0, len(sentences), size)]
+
     if len(paragraphs) < 2:
-        raise ValueError("model returned no usable cover letter paragraphs")
+        seen = " ".join(str(raw)[:200].split())
+        raise ValueError(f"model returned no usable cover letter paragraphs (it sent: {seen})")
     if re.search(r"\[[^\]]+\]", " ".join(paragraphs)):
         raise ValueError("cover letter contained a [placeholder]")
     return paragraphs
@@ -278,7 +299,12 @@ def write_cover_letter(job: dict, resume: dict) -> tuple[list[str], list[str]]:
         truth_rules=TRUTH_RULES, letter_structure=LETTER_STRUCTURE, keyword_rule=keyword_rule,
         authorization_rule=authorization_rule, style_rules=STYLE_RULES,
     )
-    paragraphs = _parse_letter(_ask(prompt, LETTER_SCHEMA))
+    try:
+        paragraphs = _parse_letter(_ask(prompt, LETTER_SCHEMA))
+    except ValueError:  # unusable shape: ask once more, spelling out the format
+        paragraphs = _parse_letter(_ask(
+            prompt + '\n\nReturn JSON with a "paragraphs" array holding exactly 3 separate strings, '
+                     "one per paragraph.", LETTER_SCHEMA))
 
     # If the draft still sounds like AI, ask once more, naming exactly what to remove.
     flags = slop_flags(" ".join(paragraphs))
