@@ -15,9 +15,9 @@ import sys
 from playwright.sync_api import sync_playwright
 
 try:
-    import linkedin_resolver as lr
+    import applying.linkedin_resolver as lr
 except ImportError:  # the file was moved into archive
-    import archive.linkedin_resolver as lr
+    import applying.linkedin_resolver as lr
 import config.apply_settings as _cfg
 from config.apply_settings import BROWSER_PROFILE_DIR
 

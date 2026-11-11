@@ -10,15 +10,15 @@ from datetime import datetime
 
 import pandas as pd
 
-from db import DB_PATH, FAILED_SCORE, get_scored_urls, init_db, save_job
-from scraper import fill_missing_descriptions, scrape_multiple_terms
-from scorer import MODEL, load_resume, score_job
-from application_maker import create_application, job_folder
+from core.db import DB_PATH, FAILED_SCORE, get_scored_urls, init_db, save_job
+from core.scraper import fill_missing_descriptions, scrape_multiple_terms
+from core.scorer import MODEL, load_resume, score_job
+from documents.application_maker import create_application, job_folder
 from show_jobs import get_jobs
 from dedupe import duplicate_gap, load_known
-from filters import filter_reason
-from job_info import format_salary
-from calibration import blend, keyword_score
+from core.filters import filter_reason
+from core.job_info import format_salary
+from core.calibration import blend, keyword_score
 
 from config.settings import (
     DOC_MIN_SCORE, DOC_WINDOW_DAYS, HOURS_OLD, LOCATION, MAKE_DOCS, MAX_CONSECUTIVE_FAILURES,

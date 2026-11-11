@@ -29,7 +29,7 @@ import random
 import sqlite3
 import textwrap
 
-from calibration import (
+from core.calibration import (
     CALIBRATION_FILE, DEFAULT_CALIBRATION, MIN_RATINGS, apply_calibration_to_db, calibration_history,
     clear_calibration, fit_calibration, keyword_score, load_calibration, save_calibration,
 )
@@ -37,8 +37,8 @@ from config.settings import (
     FIT_ON_ALL_RATINGS, RATING_BATCH_SIZE, RATING_DESC_CHARS, RATING_DESCRIPTION, RATING_SHOW_MODEL_NOTES,
     RATING_SUMMARY_BULLETS,
 )
-from db import DB_PATH, init_db
-from job_info import salary_from_text, special_notes, summary_points
+from core.db import DB_PATH, init_db
+from core.job_info import salary_from_text, special_notes, summary_points
 
 DEFAULT_BATCH = RATING_BATCH_SIZE  # all of these are set in config/settings.py
 DESC_CHARS = RATING_DESC_CHARS

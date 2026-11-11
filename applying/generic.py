@@ -17,8 +17,8 @@ form stays open in the browser.
 
 import re
 
-from job_status import closed_in_text
-from form_filler import FORM_FIELDS, SCAN_JS, fill_form
+from core.job_status import closed_in_text
+from applying.form_filler import FORM_FIELDS, SCAN_JS, fill_form
 
 # Buttons that move forward without sending anything.
 NEXT_RE = re.compile(

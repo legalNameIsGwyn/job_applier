@@ -3,7 +3,7 @@
 import re
 
 from config.job_notes import NOTE_PATTERNS
-from filters import min_years_required
+from core.filters import min_years_required
 
 
 # ------------------------------------------------------------------------------- salary

@@ -12,7 +12,7 @@ import sys
 
 import requests
 
-import scraper
+import core.scraper as scraper
 
 if len(sys.argv) != 2:
     sys.exit("Usage: python check_link.py <linkedin job id>")

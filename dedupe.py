@@ -15,7 +15,7 @@ import argparse
 import json
 import re
 
-from db import DB_PATH, get_db_connection, init_db
+from core.db import DB_PATH, get_db_connection, init_db
 
 DESCRIPTION_SIMILARITY = 0.9
 COMPANY_SUFFIXES = {"inc", "incorporated", "llc", "ltd", "limited", "corp", "corporation", "co", "company", "plc", "the"}

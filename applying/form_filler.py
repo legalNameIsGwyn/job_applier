@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from answering import Answerer, pick_option
+from applying.answering import Answerer, pick_option
 
 SCAN_JS = r"""
 () => {
