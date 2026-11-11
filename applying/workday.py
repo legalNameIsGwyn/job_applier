@@ -12,8 +12,8 @@ nothing on the page needs you) or waits while you fix the page. The final "Submi
 
 import re
 
-from form_filler import fill_form
-from job_status import closed_in_text
+from applying.form_filler import fill_form
+from core.job_status import closed_in_text
 
 NEXT_BUTTONS = ('[data-automation-id="pageFooterNextButton"], '
                 '[data-automation-id="bottom-navigation-next-button"]')

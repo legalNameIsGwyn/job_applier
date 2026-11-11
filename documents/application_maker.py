@@ -43,8 +43,8 @@ from config.writing_style import (
     LETTER_AUTHORIZATION_RULE, LETTER_AVAILABILITY_CLAUSE, LETTER_KEYWORD_RULE, LETTER_PROMPT, LETTER_STRUCTURE,
     LETTER_WARN_WORDS, SLOP_PATTERNS, STYLE_RULES, TAILOR_PROMPT, TRUTH_RULES,
 )
-from db import DB_PATH
-from scorer import MODEL, client, extract_json, load_resume
+from core.db import DB_PATH
+from core.scorer import MODEL, client, extract_json, load_resume
 from show_jobs import get_jobs
 
 OUTPUT_DIR = Path(APPLICATIONS_DIR)

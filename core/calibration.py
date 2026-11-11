@@ -18,12 +18,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from application_maker import matched_skills, missing_terms
+from documents.application_maker import matched_skills, missing_terms
 from config.settings import (
     CALIBRATION_FILE, CALIBRATION_HISTORY_LIMIT, DEFAULT_MODEL_WEIGHT, MIN_RATINGS,
 )
-from db import DB_PATH, get_db_connection
-from scorer import load_resume
+from core.db import DB_PATH, get_db_connection
+from core.scorer import load_resume
 
 DEFAULT_CALIBRATION = {"fitted": False, "w_model": DEFAULT_MODEL_WEIGHT, "a": 1.0, "b": 0.0}
 

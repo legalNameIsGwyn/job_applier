@@ -19,7 +19,7 @@ For each job it opens the application, uploads this job's resume and cover lette
 first if needed), fills every field it has an answer for, and then waits. Read the form, fix
 anything wrong, press Submit yourself, then tell the terminal what happened.
 
-First time only:   pip install playwright    then    python -m playwright install firefox
+First time only:   pip install playwright    then    playwright install chromium
 Settings: config/apply_settings.py (which jobs, which sites)   config/answers.py (the answers)
 """
 
@@ -27,9 +27,9 @@ import argparse
 import sqlite3
 from pathlib import Path
 
-from answering import Answerer
-from application_maker import create_application, job_folder, name_fields, render_name
-from ats import (CLICK_CHECKED, GENERIC_SITES, IMPLEMENTED, NO_LINK, NO_LINK_MARKERS, application_url, detect_ats,
+from applying.answering import Answerer
+from documents.application_maker import create_application, job_folder, name_fields, render_name
+from applying.ats import (CLICK_CHECKED, GENERIC_SITES, IMPLEMENTED, NO_LINK, NO_LINK_MARKERS, application_url, detect_ats,
                  site_key)
 from config.apply_settings import (
     APPLY_MAX_PER_RUN, APPLY_MIN_SCORE, APPLY_WINDOW_DAYS, AUTO_FIND_LINKS, BROWSER_PROFILE_DIR, ENABLED_SITES,
@@ -38,13 +38,12 @@ from config.apply_settings import (
 )
 import config.apply_settings as _cfg
 from config.settings import COVER_LETTER_FILENAME, RESUME_FILENAME
-from db import DB_PATH, init_db, record_application, set_apply_url
-from form_filler import fill_form, open_application
-from job_status import check_open, closed_in_text
-from scorer import load_resume
+from core.db import DB_PATH, init_db, record_application, set_apply_url
+from applying.form_filler import fill_form, open_application
+from core.job_status import check_open, closed_in_text
+from core.scorer import load_resume
 
 # Optional settings (defaults apply if config/apply_settings.py doesn't have them yet)
-BROWSER = getattr(_cfg, "BROWSER", "firefox")   # "firefox" or "chromium" (config/apply_settings.py)
 GENERIC_AUTO_ADVANCE = getattr(_cfg, "GENERIC_AUTO_ADVANCE", True)
 GENERIC_MAX_STEPS = getattr(_cfg, "GENERIC_MAX_STEPS", 10)
 
@@ -116,7 +115,7 @@ def find_employer_links(jobs: list[dict]) -> int:
     the link if found, or "none" so the job isn't searched for again. Returns how many were searched.
     """
     try:
-        from ats_lookup import LinkFinder
+        from applying.ats_lookup import LinkFinder
     except ImportError:
         print("[APPLY] ats_lookup.py not found; skipping the company-board search.")
         return 0
@@ -136,16 +135,13 @@ def find_employer_links(jobs: list[dict]) -> int:
 
 
 def _open_profile(playwright):
-    return getattr(playwright, BROWSER).launch_persistent_context(
+    return playwright.chromium.launch_persistent_context(
         str(BROWSER_PROFILE_DIR), headless=HEADLESS, slow_mo=SLOW_MO_MS, no_viewport=True)
 
 
 def resolve_via_linkedin(jobs: list[dict]) -> int:
     """Opt-in: click Apply on LinkedIn (in your logged-in browser) for jobs the board search missed."""
-    try:
-        from linkedin_resolver import resolve_links
-    except ImportError:  # the file was moved into archive
-        from archive.linkedin_resolver import resolve_links
+    from applying.linkedin_resolver import resolve_links
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -213,14 +209,14 @@ def apply_to_job(context, job: dict, url: str, ats: str, ask=input, answerer=Non
     page = context.new_page()
     try:
         if ats == "workday":
-            import workday
+            import applying.workday as workday
             outcome = workday.run_application(page, url, answerer, resume_file, letter_file, ask=ask, show=print,
                                               show_report=print_report, auto_advance=WORKDAY_AUTO_ADVANCE,
                                               max_steps=WORKDAY_MAX_STEPS)
             if outcome == "closed":
                 return "closed"
         elif ats in GENERIC_SITES:
-            import generic
+            import applying.generic as generic
             outcome = generic.run_application(page, url, answerer, resume_file, letter_file, ask=ask, show=print,
                                               show_report=print_report, auto_advance=GENERIC_AUTO_ADVANCE,
                                               max_steps=GENERIC_MAX_STEPS, timeout_ms=PAGE_TIMEOUT_MS)
@@ -294,8 +290,7 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False)
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        print("[APPLY] Playwright isn't installed. Run:  pip install playwright   then   "
-              f"python -m playwright install {BROWSER}")
+        print("[APPLY] Playwright isn't installed. Run:  pip install playwright   then   playwright install chromium")
         return
 
     done = 0
@@ -313,6 +308,12 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False)
                     print(f"  Failed: {e}")
                     continue
                 record_application(job["job_url"], status, apply_url=link, ats=ats)
+                if status == "applied":
+                    try:
+                        import core.tracking as tracking
+                        tracking.log_applied(job["job_url"], ats=ats, folder=job_folder(job).name)
+                    except Exception as e:   # tracking must never break applying
+                        print(f"  (couldn't start tracking: {e})")
                 done += 1
                 print(f"  Recorded as: {status}")
         finally:

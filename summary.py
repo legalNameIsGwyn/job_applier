@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 import config.settings as _settings
-from db import DB_PATH, init_db
+from core.db import DB_PATH, init_db
 
 SUMMARY_DAYS = getattr(_settings, "SUMMARY_DAYS", 1)            # how far back "new" reaches
 SUMMARY_TOP = getattr(_settings, "SUMMARY_TOP", 10)             # best matches listed
@@ -55,6 +55,12 @@ def gather(days: int = SUMMARY_DAYS, top: int = SUMMARY_TOP, min_score: float = 
                   "WHERE j.status = 'scored' AND r.job_url IS NULL")[0][0]
     finally:
         conn.close()
+    try:   # application tracking (optional: needs tracking.py)
+        import core.tracking as tracking
+        data["follow_ups"] = [dict(r) for r in tracking.due_follow_ups(db_path)]
+        data["quiet"] = len(tracking.get_tracked(stale_days=14, db_path=db_path))
+    except Exception:
+        data["follow_ups"], data["quiet"] = [], 0
     data["ready"], data["blocked"] = _apply_readiness(min_score, days, db_path)
     return data
 
@@ -114,6 +120,10 @@ def render_text(d: dict) -> str:
     if d["unfinished"]:
         todo.append(f"{len(d['unfinished'])} application(s) opened but not finished: "
                     "python apply_jobs.py --include-opened")
+    for f in d.get("follow_ups", []):
+        todo.append(f"follow up with {f['company']} ({f['title']}), due {f['follow_up_on']}: python track.py show {f['job_id']}")
+    if d.get("quiet"):
+        todo.append(f"{d['quiet']} application(s) with no answer for 14+ days: python track.py list --stale 14")
     if d["ratings"] < 10:
         todo.append(f"only {d['ratings']} hand rating(s): python rating.py (10+ tunes the scores, 50+ is steadier)")
     elif d["unrated_scored"]:

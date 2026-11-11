@@ -1,0 +1,10 @@
+# Job Scraper dependencies. Install with:  pip install -r requirements.txt
+# then, once:  python -m playwright install firefox
+python-jobspy>=1.1.80
+ollama>=0.5.0          # think=False support
+pandas>=2.0
+numpy>=1.26
+python-docx>=1.1
+requests>=2.31
+beautifulsoup4>=4.12
+playwright>=1.45

@@ -16,11 +16,11 @@ job that already had a score, the old score is kept. Your hand ratings are never
 
 import argparse
 
-from calibration import blend, keyword_score
+from core.calibration import blend, keyword_score
 from config.settings import MAX_CONSECUTIVE_FAILURES
-from db import DB_PATH, FAILED_SCORE, get_db_connection, init_db, save_job
-from filters import filter_reason
-from scorer import MODEL, score_job
+from core.db import DB_PATH, FAILED_SCORE, get_db_connection, init_db, save_job
+from core.filters import filter_reason
+from core.scorer import MODEL, score_job
 
 COLUMNS = ("job_url", "site", "title", "company", "location", "description",
            "status", "match_score", "model_score")

@@ -224,7 +224,7 @@ class Answerer:
 
     def _draft_with_model(self, question: str) -> str | None:
         """Draft a short first-person answer from the resume and the posting. You review it."""
-        from application_maker import _ask, _resume_facts, clean_style  # heavy import, only needed here
+        from documents.application_maker import _ask, _resume_facts, clean_style  # heavy import, only needed here
         from config.writing_style import STYLE_RULES, TRUTH_RULES
 
         prompt = (

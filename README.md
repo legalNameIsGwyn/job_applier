@@ -73,6 +73,8 @@ python show_jobs.py               # look at the results
 python rating.py                  # hand-rate 20 jobs to tune the scores (do this early)
 python apply_jobs.py --list       # what could be applied to
 python apply_jobs.py --top 3      # fill the 3 best, review each one, submit by hand
+python track.py                   # where each application stands
+python stats.py                   # what's working
 ```
 
 ### Settings (the `config/` folder)
@@ -226,6 +228,48 @@ python clear.py db --no-backup
   Nothing is deleted. Jobs left without documents get new ones on the next `main.py`.
 - Each command asks you to type `CLEAR` unless you pass `--yes`. After `db`, the next `main.py` scrapes and scores everything again.
 
+### `track.py` and `stats.py`: track applications, see what's working
+
+`apply_jobs.py` logs an application as soon as you answer `a` (I submitted it). Everything after that is recorded with `track.py`.
+Stages: `applied` -> `screening` -> `interview` -> `offer`, or an ending: `rejected`, `ghosted`, `withdrawn`.
+
+```powershell
+python track.py                          # active applications (same as: list)
+python track.py list --all               # include rejected / ghosted / withdrawn
+python track.py list --stale 14          # applied 14+ days ago with no answer
+python track.py show acme                # stage history, contact, dates, notes
+
+python track.py add acme --date 11/03    # you applied outside the tool
+python track.py screening acme           # they replied
+python track.py interview acme --date 11/12 --note "technical, 45 min"
+python track.py offer acme               # also: rejected, ghosted, withdrawn
+python track.py note acme "Decision by Friday"
+python track.py contact acme --name "Sam Lee" --email sam@acme.com
+python track.py schedule acme 11/15      # interview date
+python track.py followup acme +7         # reminder in 7 days
+python track.py sync                     # start tracking jobs already marked "applied"
+```
+
+A job can be named by its `#` (shown in lists), its URL, or part of the company or title. If a name matches several jobs,
+it lists them and asks you to be specific. Dates accept `2026-11-09`, `11/09`, `today`, `tomorrow` and `+7`. Each application also
+remembers where you applied (job site, applicant system), the score it had, and which documents folder it used.
+Due follow-ups and applications with no answer for 14+ days appear under "NEEDS YOU" in `summary.py`.
+
+```powershell
+python stats.py                          # all time
+python stats.py --days 30
+python stats.py --section funnel,score   # funnel | score | breakdown | trends
+```
+
+- **Funnel:** scraped -> scored -> good matches -> applied -> heard back -> interview -> offer. "Heard back" means screening,
+  interview, offer or a rejection. Ghosted and withdrawn don't count.
+- **Score vs outcome:** answer and interview rates by score band, so you can see whether higher scores really get more replies.
+- **Breakdown:** by job site, applicant system, company and title keyword.
+- **Trends:** jobs scraped, applications and replies per week, and the median days to hear back.
+
+With only a handful of applications the percentages are noisy; `stats.py` says so. The data lives in two extra tables in
+`data\jobs_db.sqlite` (`tracking`, `tracking_events`). `clear.py db` empties the jobs and applications but not these two.
+
 ---
 
 ## Applying (`apply_jobs.py`)
@@ -372,6 +416,8 @@ job_scraper\
 | `dedupe.py` | Finds the same posting listed twice |
 | `job_status.py` | Checks whether a posting is still open |
 | `clear.py` | Clears the database and archives documents |
+| `tracking.py`, `track.py` | Tracks applications after you apply (stage, contact, dates, notes) |
+| `stats.py` | Funnel, score vs outcome, breakdowns and weekly trends |
 | `apply_jobs.py` | Finds links, opens applications in a browser and fills them in (never submits) |
 | `form_filler.py`, `answering.py` | The form scanner/filler and the answer logic |
 | `ats.py` | Works out which applicant system a link belongs to |
@@ -445,7 +491,7 @@ field is filled from the second part. Only list things that are true; documents 
 
 - Filling LinkedIn Easy Apply and Indeed's own forms
 - Finding the employer link for Indeed jobs
-- Application tracking after you apply (interviewing / rejected)
+- Tracking by email (outcomes are entered by hand with `track.py`)
 - Salary is saved only for jobs scraped after that feature; older jobs show a salary only if the posting text quotes one
 - PDF export (documents are `.docx`)
 - Scheduled runs (Windows Task Scheduler can run `python main.py` for you)

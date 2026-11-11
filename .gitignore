@@ -1,18 +1,18 @@
-# personal data and logins
+# Personal data and logins: never commit these
 data/
 applications/
-browser_profile/
+browser_profile*/
 learned_answers.json
 reports/
 jobs.csv
-jobs_db.sqlite
 *.sqlite
-
-# debug output and scratch
 archive/
-linkedin_check.*
-page_*.html
+backup_before_fix_imports_*.zip
 
-# python
+# Python
 __pycache__/
 *.pyc
+
+# Diagnostics
+linkedin_check.*
+page_*.html

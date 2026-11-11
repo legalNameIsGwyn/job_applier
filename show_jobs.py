@@ -18,7 +18,7 @@ import sqlite3
 import textwrap
 
 from config.settings import SHOW_DEFAULT_COUNT
-from db import DB_PATH
+from core.db import DB_PATH
 
 
 def get_jobs(
