@@ -9,8 +9,8 @@ is sent to a cloud model.
 python main.py
    scrape (LinkedIn, Indeed)
    -> filter by title / company rules
-   -> fetch LinkedIn descriptions
-   -> filter by years of experience required
+   -> fetch LinkedIn descriptions (and applicant counts)
+   -> filter by years of experience required and by number of applicants
    -> skip reposts (duplicate detection)
    -> score with the local model, blend with a keyword score, apply your calibration
    -> save to SQLite
@@ -36,8 +36,7 @@ before trusting it. LinkedIn Easy Apply and Indeed's own forms are **not** suppo
 **Requirements:** Python 3.10+, [Ollama](https://ollama.com) running locally.
 
 ```powershell
-pip install python-jobspy ollama pandas python-docx requests beautifulsoup4 playwright numpy
-pip install -U ollama                      # recent version needed for think=False
+pip install -r requirements.txt
 python -m playwright install firefox       # one time, for apply_jobs.py
 ollama pull qwen2.5:7b                     # or any model you prefer
 ```
@@ -58,6 +57,8 @@ so "thinking" models (Qwen3 and similar) don't stall.
 **Fill in `data\resume.json`.** It is the single source of truth for scoring, every generated
 document and the form answers. See [resume.json](#resumejson).
 
+**Run `python check_setup.py`** to check the files, imports, settings, Ollama, Firefox, the database and git. Add `--quick` to skip Ollama, the browser and the database. It changes nothing.
+
 **Log in once for applying:** `python apply_jobs.py --login` opens Firefox on LinkedIn's sign-in page. Log in
 by hand (including any verification), then press Enter in the terminal. The login is kept in the browser
 profile folder; the code never sees a password.
@@ -67,6 +68,7 @@ profile folder; the code never sees a password.
 ## Everyday use
 
 ```powershell
+python check_setup.py             # is everything in place and working?
 python main.py                    # scrape -> filter -> score -> save -> make documents -> summary
 python summary.py                 # what's new and what needs you
 python show_jobs.py               # look at the results
@@ -77,6 +79,8 @@ python track.py                   # where each application stands
 python stats.py                   # what's working
 ```
 
+Every command and flag is listed in `CMDLIST.md`.
+
 ### Settings (the `config/` folder)
 
 **Every editable setting lives in `config/`. `data\resume.json` is the one exception.** The code reads
@@ -84,7 +88,7 @@ these files when it starts, so restart a running script after editing.
 
 | File | What's in it |
 |---|---|
-| `config/settings.py` | file locations (`RESUME_FILE`, `DB_PATH`, `CALIBRATION_FILE`, `APPLICATIONS_DIR`); what to search (`SITES`, `SEARCH_TERMS`, `LOCATION`, `RESULTS_WANTED`, `HOURS_OLD`); the model, timeouts and temperatures; scraping delays, `LINKEDIN_RESULTS_WANTED` and rate-limit backoff; document options (`MAKE_DOCS`, `DOC_MIN_SCORE`, `MAX_DOCS_PER_RUN`, `DOC_WINDOW_DAYS`, `MAX_PROJECTS`, `FONT`, greeting and sign-off); **file name templates**; score blending and rating options; summary options (`SUMMARY_AFTER_RUN`, `SUMMARY_DAYS`, `SUMMARY_TOP`, `SUMMARY_MIN_SCORE`, `SUMMARY_DIR`). Optional: `BACKUP_DIR`, `ARCHIVE_DIR` (used by `clear.py`) |
+| `config/settings.py` | file locations (`RESUME_FILE`, `DB_PATH`, `CALIBRATION_FILE`, `APPLICATIONS_DIR`); what to search (`SITES`, `SEARCH_TERMS`, `LOCATION`, `RESULTS_WANTED`, `HOURS_OLD`); the model, timeouts and temperatures; scraping delays, `LINKEDIN_RESULTS_WANTED` and rate-limit backoff; document options (`MAKE_DOCS`, `DOC_MIN_SCORE`, `MAX_DOCS_PER_RUN`, `DOC_WINDOW_DAYS`, `MAX_PROJECTS`, `FONT`, greeting and sign-off); **file name templates**; score blending and rating options; summary options (`SUMMARY_AFTER_RUN`, `SUMMARY_DAYS`, `SUMMARY_TOP`, `SUMMARY_MIN_SCORE`, `SUMMARY_DIR`); the applicant filter (`MAX_APPLICANTS`, `KEEP_UNKNOWN_APPLICANTS`). Optional: `BACKUP_DIR`, `ARCHIVE_DIR` (used by `clear.py`) |
 | `config/apply_settings.py` | which jobs to apply to (`APPLY_MIN_SCORE`, `APPLY_MAX_PER_RUN`, `APPLY_WINDOW_DAYS`); `ENABLED_SITES`; the browser (`BROWSER`, `BROWSER_PROFILE_DIR`, `HEADLESS`, `SLOW_MO_MS`, `PAGE_TIMEOUT_MS`); `CHECK_STILL_OPEN`; Workday (`WORKDAY_AUTO_ADVANCE`, `WORKDAY_MAX_STEPS`); generic sites (`GENERIC_AUTO_ADVANCE`, `GENERIC_MAX_STEPS`); link finding (`AUTO_FIND_LINKS`, `FIND_LINKS_MAX`, `LINKEDIN_CLICK_APPLY`, `LINKEDIN_CLICK_MAX`, `LINKEDIN_CLICK_DELAY`); answers (`ASK_ABOUT_UNKNOWN`, `DRAFT_FREE_TEXT`, `FREE_TEXT_MAX_WORDS`, `LEARNED_ANSWERS_FILE`) |
 | `config/answers.py` | the rules that answer form questions from `resume.json`, and `NEVER_ANSWER` |
 | `config/filter_rules.py` | senior-title words, staffing agencies to skip, `MAX_MIN_YEARS`, clearance / citizenship patterns |
@@ -106,7 +110,8 @@ error that names the file, the prompt and the allowed placeholders.
 | Per search | 50 results (LinkedIn capped at 15), jobs up to 72 hours old |
 | Documents | made for jobs scoring 6+ from the last 7 days, at most 10 per run |
 | Applying | jobs scoring 7+ from the last 14 days, at most 5 per run; Firefox; Greenhouse, Lever, Ashby, Workday and generic sites on; Indeed off |
-| Link finding | reads LinkedIn Apply buttons (`LINKEDIN_CLICK_APPLY`, at most 10 per run, 8 to 20 seconds apart); company-board search off (`AUTO_FIND_LINKS = False`) |
+| Link finding | reads LinkedIn Apply buttons (`LINKEDIN_CLICK_APPLY`, at most 10 per run, 8 to 20 seconds apart); company-board search off (`AUTO_FIND_LINKS = False`; set it to `True` to use `applying\ats_lookup.py`) |
+| Applicant limit | skips LinkedIn jobs with more than 10 applicants (`MAX_APPLICANTS`); jobs with no count shown are kept |
 
 Runs are **resumable and cheap to repeat**: each job is saved the moment it's scored, jobs already scored,
 filtered or marked duplicate are skipped (matched by `job_url`), and Ctrl-C loses nothing. The search itself runs
@@ -155,15 +160,15 @@ python rescore.py --url <job_url>  # one job
 python rescore.py --yes            # don't ask
 ```
 
-### `application_maker.py`: resume + cover letter
+### `documents\application_maker.py`: resume + cover letter
 
-`main.py` runs this automatically for the best recent jobs. To run it yourself:
+`main.py` runs this automatically for the best recent jobs. To run it yourself (as a module, from the project root):
 
 ```powershell
-python application_maker.py --top 5                   # best 5 jobs scoring 6+
-python application_maker.py --top 10 --min-score 7 --days 3
-python application_maker.py --url <job_url>           # one job already in the database
-python application_maker.py --top 5 --force           # regenerate existing ones
+python -m documents.application_maker --top 5                   # best 5 jobs scoring 6+
+python -m documents.application_maker --top 10 --min-score 7 --days 3
+python -m documents.application_maker --url <job_url>           # one job already in the database
+python -m documents.application_maker --top 5 --force           # regenerate existing ones
 ```
 
 Output goes to `data\applications\<company>_<title>_<hash>\`:
@@ -315,9 +320,10 @@ Most jobs come from LinkedIn, which hides the employer's link from logged-out vi
    works for jobs whose Apply button is an external link, and "Easy Apply" jobs are recognized and skipped. It runs when
    `LINKEDIN_CLICK_APPLY = True`, is capped at `LINKEDIN_CLICK_MAX` jobs per run, pauses `LINKEDIN_CLICK_DELAY` seconds
    between jobs, and stops at the first login wall. LinkedIn forbids automation, so keep it low volume. The code is in
-   `linkedin_resolver.py` (currently stored in `archive\`; `apply_jobs.py` finds it there or in the project folder).
-3. **The company's public job board** (`ats_lookup.py`, `AUTO_FIND_LINKS`). This module isn't in your project, so the setting
-   has no effect.
+   `applying\linkedin_resolver.py`.
+3. **The company's public job board** (`applying\ats_lookup.py`). Set `AUTO_FIND_LINKS = True` to use it. It looks for the same job (company and title)
+   on the company's public Greenhouse, Lever or Ashby board, and returns nothing when it isn't sure. Test it with
+   `python -m applying.ats_lookup "Company" "Job title" "City, ST"`.
 4. **By hand** with `--set-url`.
 
 Whatever it finds is saved once per job. Jobs with no link are marked "none" and not searched again until you run
@@ -344,7 +350,7 @@ signatures and consent checkboxes are **never** filled for you. A required field
 ### Diagnostics
 
 ```powershell
-python check_linkedin_page.py <linkedin job url>   # what the Apply button is, and what the tool would do
+python -m applying.check_linkedin_page <linkedin job url>   # what the Apply button is, and what the tool would do
 ```
 
 It prints a `Decision:` line (`direct`, `easy`, `apply` or `none`) and the visible buttons, which is what to send when a
@@ -354,7 +360,7 @@ link isn't found. It saves a screenshot, which can show your Messaging dock, so 
 
 ## How it works
 
-### Filters (`filters.py`)
+### Filters (`core\filters.py`)
 
 Cheap rules that skip jobs before they cost model time. Skipped jobs are saved with status `filtered` and the reason, so
 they're never re-fetched.
@@ -363,9 +369,13 @@ they're never re-fetched.
   Director, Architect, VP...), Engineer III/IV/V, and a list of staffing agencies.
 - **Experience** (needs the description): rejected only when *every* "N years of experience" requirement is above
   `MAX_MIN_YEARS` (default 2). "1-3 years" passes; "3+ years" doesn't.
+- **Applicants** (needs the job page): LinkedIn jobs with more than `MAX_APPLICANTS` applicants are skipped, so you spend your time on
+  postings that few people have applied to. The count is read from the public job page ("42 applicants", "Over 200 applicants").
+  "Be among the first 25 applicants" counts as unknown, and `KEEP_UNKNOWN_APPLICANTS` decides whether such jobs are kept. Set
+  `MAX_APPLICANTS = None` to turn the filter off. The count isn't stored in the database; it is only used to filter.
 - **Duplicates** (`dedupe.py`): see above.
 
-### Scoring (`scorer.py`, `calibration.py`)
+### Scoring (`core\scorer.py`, `core\calibration.py`)
 
 1. **Hard rejects in code:** postings mentioning security clearance or US-citizen-only requirements score 0 without calling
    the model (unless they say "no clearance required").
@@ -376,7 +386,7 @@ they're never re-fetched.
 4. **Final score:** `a * (w * model + (1 - w) * keyword) + b`, clipped to 0-10. Defaults are 70% model, 30% keywords. After you
    hand-rate jobs, `w`, `a` and `b` are fitted to your ratings. A model score of 0 always stays 0.
 
-### Documents (`application_maker.py`)
+### Documents (`documents\application_maker.py`)
 
 The model only chooses **emphasis**: it rewrites the summary, picks the most relevant projects, and writes the cover letter body.
 Employers, titles, dates, education and bullet text are copied verbatim from `resume.json`, so the resume can't contain invented
@@ -390,41 +400,54 @@ format is ATS-friendly: single column, no tables or images, standard headings, a
 
 ```
 job_scraper\
-  main.py  summary.py  apply_jobs.py  rating.py  rescore.py  show_jobs.py  dedupe.py  clear.py  ...
-  config\          every editable setting
-  data\            resume.json, jobs_db.sqlite, calibration.json, applications\, backups\, archived_applications\
-  archive\         retired files (and linkedin_resolver.py, which is still used)
-  reports\         HTML summaries from summary.py --html
+  main.py  apply_jobs.py  summary.py  stats.py  track.py  show_jobs.py
+  rating.py  rescore.py  dedupe.py  clear.py  check_setup.py  fix_imports.py
+  README.md  CMDLIST.md  requirements.txt  .gitignore
+  config\       every editable setting
+  core\         db, scraper, filters, scorer, calibration, job_info, job_status, tracking
+  documents\    application_maker
+  applying\     ats, ats_lookup, form_filler, answering, workday, generic,
+                linkedin_resolver, check_linkedin_page
+  data\         resume.json, jobs_db.sqlite, calibration.json, applications\, backups\, archived_applications\
+  reports\      HTML summaries from summary.py --html
+  archive\      retired files
   browser_profile_firefox\   the browser's saved logins (name depends on BROWSER_PROFILE_DIR)
   learned_answers.json       form answers you typed in
 ```
+
+The files in `core\`, `applying\` and `documents\` are libraries. The few that have commands are run as modules from the
+project root, for example `python -m documents.application_maker` or `python -m applying.check_linkedin_page`.
 
 | File | Purpose |
 |---|---|
 | `main.py` | The pipeline. Run this. |
 | `summary.py` | What's new and what needs you |
-| `scraper.py` | Scrapes via JobSpy; fetches LinkedIn descriptions with rate-limit backoff |
-| `filters.py` | Pre-scoring rules (title, company, years of experience) |
-| `scorer.py` | Local-model scoring and hard rejects |
-| `calibration.py` | Keyword score, blending, and fitting to your ratings |
+| `stats.py` | Funnel, score vs outcome, breakdowns and weekly trends |
+| `track.py` | Tracks applications after you apply (stage, contact, dates, notes) |
+| `show_jobs.py` | View top or bottom jobs |
 | `rating.py` | Hand-rating tool that tunes the calibration |
 | `rescore.py` | Re-scores jobs already in the database |
-| `db.py` | SQLite schema, migrations and saving |
-| `show_jobs.py` | View top or bottom jobs |
-| `job_info.py` | Pulls salary, special notes and a bullet summary out of a posting (used by `rating.py`) |
-| `application_maker.py` | Tailored resume and cover letter generation |
 | `dedupe.py` | Finds the same posting listed twice |
-| `job_status.py` | Checks whether a posting is still open |
 | `clear.py` | Clears the database and archives documents |
-| `tracking.py`, `track.py` | Tracks applications after you apply (stage, contact, dates, notes) |
-| `stats.py` | Funnel, score vs outcome, breakdowns and weekly trends |
 | `apply_jobs.py` | Finds links, opens applications in a browser and fills them in (never submits) |
-| `form_filler.py`, `answering.py` | The form scanner/filler and the answer logic |
-| `ats.py` | Works out which applicant system a link belongs to |
-| `workday.py` | The Workday application wizard filler |
-| `generic.py` | The filler for every other employer site |
-| `linkedin_resolver.py` | Reads the employer link from a LinkedIn job's Apply button (in `archive\`) |
-| `check_linkedin_page.py` | Diagnostic for the link reader |
+| `check_setup.py` | Checks that files, imports, settings, Ollama, Firefox, the database and git are all fine |
+| `fix_imports.py` | Repairs imports after files are moved between folders |
+| `core\db.py` | SQLite schema, migrations and saving |
+| `core\scraper.py` | Scrapes via JobSpy; fetches LinkedIn descriptions and applicant counts with rate-limit backoff |
+| `core\filters.py` | Pre-scoring rules (title, company, years of experience) |
+| `core\scorer.py` | Local-model scoring and hard rejects |
+| `core\calibration.py` | Keyword score, blending, and fitting to your ratings |
+| `core\job_info.py` | Pulls salary, special notes and a bullet summary out of a posting (used by `rating.py`) |
+| `core\job_status.py` | Checks whether a posting is still open |
+| `core\tracking.py` | The application-tracking tables and functions behind `track.py` and `stats.py` |
+| `documents\application_maker.py` | Tailored resume and cover letter generation |
+| `applying\ats.py` | Works out which applicant system a link belongs to |
+| `applying\ats_lookup.py` | Finds a job's employer link on the company's public job board |
+| `applying\form_filler.py`, `applying\answering.py` | The form scanner/filler and the answer logic |
+| `applying\workday.py` | The Workday application wizard filler |
+| `applying\generic.py` | The filler for every other employer site |
+| `applying\linkedin_resolver.py` | Reads the employer link from a LinkedIn job's Apply button |
+| `applying\check_linkedin_page.py` | Diagnostic for the link reader |
 
 ### `resume.json`
 
@@ -474,14 +497,16 @@ field is filled from the second part. Only list things that are true; documents 
 - **Indeed returns odd results or errors:** remove `"indeed"` from `SITES` in `config/settings.py`.
 - **Cover letter: "no usable cover letter paragraphs":** the error now includes what the model sent. Send it to get the parser extended,
   or try another model.
+- **`ModuleNotFoundError` or "cannot import name" after moving files:** run `python fix_imports.py` (use `--dry-run` first), then `python check_setup.py`.
 - **`ModuleNotFoundError: docx`:** `pip install python-docx` (not `docx`).
 - **`playwright` is not recognized:** use `python -m playwright install firefox`.
 - **The browser says the profile is in use:** another window is still open on that profile. Close it.
 - **Error naming a file in `config\`:** a prompt or file-name template has a typo. The message lists the placeholders you can use.
 - **Scores don't look right:** run `python rating.py --report`; weak agreement with you means the prompt or model needs work, not just the blend.
 - **"employer link not looked up yet" or "none" for a LinkedIn job:** run `python apply_jobs.py --login` once, then
-  `python apply_jobs.py --recheck-links`. If a job still isn't found, run `python check_linkedin_page.py <job url>` and read its
+  `python apply_jobs.py --recheck-links`. If a job still isn't found, run `python -m applying.check_linkedin_page <job url>` and read its
   `Decision:` line. `easy` means Easy Apply, which can't be filled.
+- **Fewer jobs than expected:** the applicant filter may be skipping them. Look for `[FILTER] ... applicants (limit N)` lines, or raise `MAX_APPLICANTS` (or set it to `None`) in `config/settings.py`.
 - **Apply opened but fields are empty:** the site may use a custom form. Check "NEEDS YOUR ATTENTION" and add a rule to
   `config\answers.py` for any question it asks about repeatedly.
 
@@ -491,6 +516,7 @@ field is filled from the second part. Only list things that are true; documents 
 
 - Filling LinkedIn Easy Apply and Indeed's own forms
 - Finding the employer link for Indeed jobs
+- Showing the applicant count in `show_jobs.py` and `summary.py` (it isn't stored in the database yet)
 - Tracking by email (outcomes are entered by hand with `track.py`)
 - Salary is saved only for jobs scraped after that feature; older jobs show a salary only if the posting text quotes one
 - PDF export (documents are `.docx`)
@@ -502,4 +528,6 @@ field is filled from the second part. Only list things that are true; documents 
 `data\` (your resume, database, generated documents), `learned_answers.json` and the browser profile folder hold your personal
 details and logins. Keep them out of any public repository. The `.gitignore` should list `data/`, `applications/`,
 `browser_profile*/`, `learned_answers.json`, `reports/`, `*.sqlite`, `jobs.csv`, `archive/` and `__pycache__/`; keep the
-repository **private**.
+repository **private**. Run `python check_setup.py` before you push: its last section lists any private file that git tracks.
+If a private file was ever pushed, deleting it later does not remove it from older commits, so a public repository can still
+expose it.
