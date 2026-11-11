@@ -256,7 +256,7 @@ def check_runtime_imports(files: list[Path]) -> None:
     sys.path.insert(0, str(ROOT))
     failures = []
     for p in files:
-        if p.name in ("__init__.py", Path(__file__).name, "fix_imports.py"):
+        if p.name in ("__init__.py", Path(__file__).name, "fix_imports.py", "check_linkedin_page.py"):
             continue
         name = dotted(p)
         try:

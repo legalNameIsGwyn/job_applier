@@ -80,6 +80,18 @@ def _parse_linkedin_description(html: str) -> str:
         li.insert(0, "- ")
     return node.get_text("\n", strip=True)
 
+def _parse_linkedin_applicants(html: str) -> int | None:
+    """Applicant count from the public job page ('42 applicants', 'Over 200 applicants').
+    None when there is no count, or it only says 'Be among the first 25 applicants'."""
+    node = BeautifulSoup(html, "html.parser").select_one(".num-applicants__caption")
+    if not node:
+        return None
+    text = node.get_text(" ", strip=True).lower()
+    match = re.search(r"(\d[\d,]*)", text)
+    if not match or "first" in text:
+        return None
+    number = int(match.group(1).replace(",", ""))
+    return number + 1 if ("over" in text or "more than" in text) else number
 
 def _unwrap_external(link: str) -> str | None:
     """The employer's URL from a LinkedIn redirect like .../externalApply/123?url=<encoded>, else None."""
@@ -140,7 +152,10 @@ def fill_missing_descriptions(
     if "description" not in df.columns:
         df["description"] = ""
     df["description"] = df["description"].astype(object)
-
+    
+    if "applicants" not in df.columns:
+        df["applicants"] = pd.Series([None] * len(df), index=df.index, dtype=object)
+        
     missing = [
         idx
         for idx, row in df.iterrows()
@@ -170,6 +185,7 @@ def fill_missing_descriptions(
             page = _fetch_linkedin_page(session, job_id)
             text = _parse_linkedin_description(page) if page else ""
             link = _parse_linkedin_apply_link(page) if page else None  # usually absent: LinkedIn hides it
+            count = _parse_linkedin_applicants(page) if page else None
             rate_limited_in_a_row = 0
         except _RateLimited:
             rate_limited_in_a_row += 1
@@ -187,6 +203,10 @@ def fill_missing_descriptions(
         if text:
             df.at[idx, "description"] = text
             filled += 1
+
+        if count is not None:
+            df.at[idx, "applicants"] = count
+
         # If the page does carry the employer's apply link, keep it (unless JobSpy already gave one).
         if link:
             if "job_url_direct" not in df.columns:

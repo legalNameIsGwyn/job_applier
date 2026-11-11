@@ -61,6 +61,17 @@ def save_filtered(job: dict, reason: str) -> None:
     save_job(job, {"match_score": 0.0, "matched_skills": [], "gaps": [reason]},
              status="filtered", model_score=0.0)
 
+def applicant_reason(row, job: dict) -> str | None:
+    """Reason to skip a LinkedIn job for having too many applicants (None = keep it)."""
+    limit = getattr(_settings, "MAX_APPLICANTS", None)
+    if limit is None or "linkedin.com" not in job["job_url"]:
+        return None
+    count = row.get("applicants")
+    if pd.notna(count) and int(count) > limit:
+        return f"{int(count)} applicants (limit {limit})"
+    if pd.isna(count) and not getattr(_settings, "KEEP_UNKNOWN_APPLICANTS", True):
+        return "no applicant count shown"
+    return None
 
 def generate_documents(min_score: float = DOC_MIN_SCORE, max_docs: int = MAX_DOCS_PER_RUN,
                        days: int = DOC_WINDOW_DAYS) -> int:
@@ -205,7 +216,7 @@ async def main(
         job = job_from_row(row)
 
         # Filter stage 2: needs the description (years of experience required)
-        reason = filter_reason(job["title"], job["company"], job["description"])
+        reason = applicant_reason(row, job) or filter_reason(job["title"], job["company"], job["description"])
         if reason:
             print(f"\n[FILTER] {job['title'][:50]}: {reason}")
             save_filtered(job, reason)

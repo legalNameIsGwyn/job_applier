@@ -25,10 +25,16 @@ SEARCH_TERMS = [
 ]
 LOCATION = "Norfolk, VA"
 RESULTS_WANTED = 50   # per site, per search term
-HOURS_OLD = 72        
+HOURS_OLD = 72    
+
 LINKEDIN_RESULTS_WANTED = 15   # LinkedIn blocks big pulls
 LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS = False  # False = JobSpy won't open every job page
 # main.py's slower fetcher fills descriptions in instead
+
+# LinkedIn applicant-count filter (read from each job's public page)
+MAX_APPLICANTS = 25              # skip LinkedIn jobs with more applicants than this; None = don't filter
+KEEP_UNKNOWN_APPLICANTS = True   # keep jobs whose page shows no usable count
+
 
 # ----------------------------------------------------------------------------- local model
 # The OLLAMA_MODEL environment variable, if set, overrides the name below:
