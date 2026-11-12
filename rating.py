@@ -35,10 +35,14 @@ from core.calibration import (
 )
 from config.settings import (
     FIT_ON_ALL_RATINGS, RATING_BATCH_SIZE, RATING_DESC_CHARS, RATING_DESCRIPTION, RATING_SHOW_MODEL_NOTES,
-    RATING_SUMMARY_BULLETS,
+    RATING_SUMMARY_BULLETS, FULL_TRUST_RATINGS,
 )
 from core.db import DB_PATH, init_db
 from core.job_info import salary_from_text, special_notes, summary_points
+from core.filters import min_years_required, my_years_experience, years_gap_note
+from dedupe import description_words, duplicate_gap, similarity, title_key
+
+SIMILAR_HINT = 0.5  # show "possibly the same posting" at this much word overlap (same title only)
 
 DEFAULT_BATCH = RATING_BATCH_SIZE  # all of these are set in config/settings.py
 DESC_CHARS = RATING_DESC_CHARS
@@ -47,6 +51,7 @@ INSTRUCTIONS = """
 Rate each job from 0 to 10 for how well it fits YOU:
     0 = I would never apply / not eligible     5 = maybe     10 = ideal
 Type d to read the full posting, s to skip a job (it won't be offered again), q to stop and save.
+Type x if it is the same posting as another job: it is marked a duplicate and left out of the tuning.
 Scores are hidden so they don't influence you.
 """
 
@@ -103,8 +108,81 @@ def _wrap(text: str, indent: str = "  ") -> str:
     return textwrap.fill(text, 100, initial_indent=indent, subsequent_indent=indent + "  ")
 
 
-def _show_job(i: int, total: int, job: dict, show) -> None:
-    """One job's card: pay, notes, (optionally) the model's skills and gaps, and the posting."""
+def load_pool(db_path: str = DB_PATH) -> list[dict]:
+    """Every scored or duplicate job (with your rating, if any) to compare against while rating."""
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            """SELECT j.job_url, j.title, j.company, j.location, j.description, j.status, j.scraped_at, r.rating
+               FROM jobs j LEFT JOIN ratings r ON r.job_url = j.job_url
+               WHERE j.job_url IS NOT NULL AND j.status IN ('scored', 'duplicate')""").fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def _ranked(job: dict, candidates: list[dict]) -> list[tuple[float, dict]]:
+    """(word overlap with this job, candidate), most similar first."""
+    words = description_words(job["description"])
+    return sorted(((similarity(words, description_words(o["description"])), o) for o in candidates),
+                  key=lambda t: -t[0])
+
+
+def similar_jobs(job: dict, pool: list[dict], threshold: float = SIMILAR_HINT) -> list[tuple[float, dict]]:
+    """Jobs with the same title whose wording overlaps this one's."""
+    key = title_key(job["title"])
+    same_title = [o for o in pool if o["job_url"] != job["job_url"] and title_key(o["title"]) == key]
+    return [t for t in _ranked(job, same_title) if t[0] >= threshold]
+
+
+def _describe(score: float, o: dict) -> str:
+    rated = f", you rated it {o['rating']:g}" if o.get("rating") is not None else ""
+    marked = ", already marked duplicate" if o.get("status") == "duplicate" else ""
+    return (f"{o['title'][:40]} - {o['company'][:25]} | {(o['location'] or '')[:25]} | "
+            f"{round(score * 100)}% same wording | seen {(o.get('scraped_at') or '')[:10]}{rated}{marked}")
+
+
+def ask_original(job: dict, pool: list[dict], ask, show) -> dict | None:
+    """After x: which job is this a copy of? Offers the closest matches by wording (any title, any age);
+    you can also search by words from the title, company or city, or press Enter if you don't remember."""
+    others = [o for o in pool if o["job_url"] != job["job_url"]]
+    ranked = [t for t in _ranked(job, others) if t[0] >= 0.25][:5]
+    for _ in range(3):
+        if ranked:
+            show("Which job is it a copy of? Closest matches by wording:")
+            for n, (score, o) in enumerate(ranked, start=1):
+                show(f"  {n}) {_describe(score, o)}")
+        else:
+            show("No close matches by wording.")
+        raw = ask("Number to pick, words to search (title / company / city), or Enter if you don't remember: ").strip()
+        if not raw:
+            return None
+        if raw.isdigit() and 1 <= int(raw) <= len(ranked):
+            return ranked[int(raw) - 1][1]
+        terms = raw.lower().split()
+        hits = [o for o in others if all(t in f"{o['title']} {o['company']} {o['location']}".lower() for t in terms)]
+        if hits:
+            ranked = _ranked(job, hits)[:8]
+        else:
+            show("  Nothing matches those words.")
+    return None
+
+
+def mark_duplicate(job_url: str, original: dict | None, db_path: str = DB_PATH) -> None:
+    """You flagged this job as a copy: status 'duplicate', score 0, so it leaves the tuning and the rankings."""
+    gaps = (duplicate_gap(original) if original else ["Duplicate (original not identified)"])
+    gaps.append("Flagged by you while rating")
+    conn = _connect(db_path)
+    try:
+        with conn:
+            conn.execute("UPDATE jobs SET status = 'duplicate', match_score = 0, gaps = ? WHERE job_url = ?",
+                         (json.dumps(gaps), job_url))
+    finally:
+        conn.close()
+
+
+def _show_job(i: int, total: int, job: dict, show, similar=()) -> None:
+    """One job's card: pay, notes, years of experience, (optionally) the model's skills and gaps, and the posting."""
     description = job["description"] or ""
     show("\n" + "=" * 72)
     show(f"[{i}/{total}] {job['title']}")
@@ -122,10 +200,22 @@ def _show_job(i: int, total: int, job: dict, show) -> None:
     notes = special_notes(job["title"], job["location"], description)
     show("Special notes: " + ("; ".join(notes) if notes else "none"))
 
+    years_gap = years_gap_note(description)
+    if not years_gap:
+        asked = min_years_required(description)
+        show(f"Years: asks {asked}+, you have about {my_years_experience():g} (fine)" if asked is not None
+             else "Years: none stated in the posting (press d to check)")
+    for score, other in similar:
+        show(f"!! Possibly the same posting as: {_describe(score, other)}. Type x if it is.")
+
     if RATING_SHOW_MODEL_NOTES:
         skills, gaps = _json_list(job.get("matched_skills")), _json_list(job.get("gaps"))
+        if years_gap:
+            gaps = ["!! " + years_gap] + gaps   # the years gap always comes first
         show("Matching skills (model): " + (", ".join(skills) if skills else "none listed"))
         show("Gaps (model): " + ("; ".join(gaps) if gaps else "none listed"))
+    elif years_gap:
+        show("Gaps: !! " + years_gap)
 
     show("-" * 72)
     flat = " ".join(description.split())
@@ -152,11 +242,13 @@ def _show_full(job: dict, show) -> None:
 
 
 def _ask_rating(ask, on_detail=None) -> float | None | str:
-    """Returns a rating (0-10), None for skip, or 'quit'. d shows the full posting first."""
+    """Returns a rating (0-10), None for skip, 'dup' for a duplicate, or 'quit'. d shows the full posting first."""
     while True:
-        raw = ask("Your rating 0-10 (d = full posting, s = skip, q = quit): ").strip().lower()
+        raw = ask("Your rating 0-10 (d = full posting, s = skip, x = duplicate, q = quit): ").strip().lower()
         if raw in ("q", "quit"):
             return "quit"
+        if raw in ("x", "dup", "duplicate"):
+            return "dup"
         if raw in ("s", "skip"):
             return None
         if raw in ("d", "desc", "full") and on_detail:
@@ -182,7 +274,8 @@ def _fit_rows(db_path: str, batch: int | None = None) -> list[dict]:
     query = """SELECT COALESCE(j.model_score, j.match_score) AS model, j.keyword_score AS kw,
                       r.rating AS rating, j.title, j.company, j.description
                FROM ratings r JOIN jobs j ON j.job_url = r.job_url
-               WHERE r.rating IS NOT NULL AND COALESCE(j.model_score, j.match_score) > 0"""
+               WHERE r.rating IS NOT NULL AND j.status = 'scored'
+                 AND COALESCE(j.model_score, j.match_score) > 0"""
     params: tuple = ()
     if batch is not None:
         query += " AND r.batch = ?"
@@ -233,6 +326,9 @@ def _print_report(cal: dict, rows: list[dict], previous: dict, history: list[dic
     show(f"  final (blended) : {cal['spearman_final']}  ({_strength(cal['spearman_final'])})   <- now used")
     show(f"Average distance from your ratings: model {cal['mae_model']} points -> final {cal['mae_final']} points")
     show(f"Blend: {round(cal['w_model'] * 100)}% model / {round((1 - cal['w_model']) * 100)}% keywords")
+    if cal.get("trust", 1) < 1:
+        show(f"With {cal['n']} ratings only {round(cal['trust'] * 100)}% of the fitted adjustment is used; the rest "
+             f"stays at the defaults until you reach {FULL_TRUST_RATINGS} ratings.")
     if previous.get("fitted"):
         show(f"(Added as fit #{len(history)}. The previous fit, from {previous['fitted_at']} on "
              f"{previous['n']} ratings, stays in the history.)")
@@ -292,12 +388,20 @@ def rate_jobs(
         conn.close()
 
     show(INSTRUCTIONS)
-    rated = 0
+    pool = load_pool(db_path)
+    rated = duplicates = 0
     for i, job in enumerate(batch, start=1):
-        _show_job(i, len(batch), job, show)
+        _show_job(i, len(batch), job, show, similar_jobs(job, pool))
         answer = _ask_rating(ask, lambda job=job: _show_full(job, show))
         if answer == "quit":
             break
+        if answer == "dup":
+            mark_duplicate(job["job_url"], ask_original(job, pool, ask, show), db_path)
+            for other in pool:
+                if other["job_url"] == job["job_url"]:
+                    other["status"] = "duplicate"   # so later cards say it is already marked
+            duplicates += 1
+            continue
         conn = _connect(db_path)
         try:
             with conn:
@@ -309,7 +413,8 @@ def rate_jobs(
             conn.close()
         rated += answer is not None
 
-    show(f"\nSaved {rated} rating(s) in batch {batch_id}.")
+    show(f"\nSaved {rated} rating(s) in batch {batch_id}."
+         + (f" Marked {duplicates} duplicate(s); they are left out of the tuning." if duplicates else ""))
     return recalibrate(batch_id if latest_batch_only else None, db_path, show)
 
 
@@ -351,7 +456,9 @@ def show_calibration(show=print) -> None:
     show(f"Calibration from {cal['fitted_at']} ({cal['n']} ratings"
          f"{', latest batch only' if cal['latest_batch_only'] else ''}), stored in {CALIBRATION_FILE.name}")
     show(f"  Blend: {round(cal['w_model'] * 100)}% model / {round((1 - cal['w_model']) * 100)}% keywords, "
-         f"then x{cal['a']} + {cal['b']}")
+         f"then x{cal['a']} + {cal['b']}"
+         + (f"  (pulled toward the defaults: {round(cal['trust'] * 100)}% of the fit used, "
+            f"full at {FULL_TRUST_RATINGS} ratings)" if cal.get("trust", 1) < 1 else ""))
     show(f"  Agreement with your ratings: model {cal['spearman_model']} ({_strength(cal['spearman_model'])}), "
          f"keywords {cal['spearman_keyword']} ({_strength(cal['spearman_keyword'])}), "
          f"final {cal['spearman_final']} ({_strength(cal['spearman_final'])})")

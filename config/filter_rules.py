@@ -26,6 +26,11 @@ BLOCKED_COMPANIES = [
 # many years (you have roughly 1.5). "1-3 years" passes; "3+ years" does not.
 MAX_MIN_YEARS = 2
 
+# Your years of work experience, used to flag "asks 3+ years, you have about 1.4".
+# None = work it out from the dates in data/resume.json (overlapping roles count once;
+# internships, projects and school are not counted). Or set a number, e.g. 1.5.
+MY_YEARS_EXPERIENCE = None
+
 # --------------------------------------------------- scored 0 without asking the model
 # Postings matching any of these need a clearance or US citizenship.
 BLOCKER_PATTERNS = [

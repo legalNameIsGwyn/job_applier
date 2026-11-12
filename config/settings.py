@@ -89,6 +89,7 @@ NOTES_FILENAME = "notes.txt"    # the review notes saved in each application fol
 # ------------------------------------------------------------------- scores and rating
 DEFAULT_MODEL_WEIGHT = 0.7      # before you rate any jobs: 70% model score, 30% keyword score
 MIN_RATINGS = 10                # fewest hand ratings needed to tune the scores
+FULL_TRUST_RATINGS = 30         # below this many ratings the fit is pulled toward the defaults (fully trusted at this many)
 RATING_BATCH_SIZE = 20          # jobs shown per `python rating.py`
 RATING_DESC_CHARS = 900         # how much of each description is shown while rating
 RATING_DESCRIPTION = "summary"  # "summary", "excerpt" (first RATING_DESC_CHARS characters) or "full"

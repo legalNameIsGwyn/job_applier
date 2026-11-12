@@ -60,7 +60,7 @@ JOB: {job_title} at {company}
 {description}
 
 {truth_rules}
-
+{years_rule}
 Return JSON with:
 - "summary": 2 plain sentences, under 60 words, rewriting the resume summary to fit this job. Keep the degree and the real roles; do not add new claims. Where it is true, use the posting's own wording for my skills. No em dashes and no buzzwords (leverage, passionate, dynamic, robust).
 - "relevant_skills": up to {max_skills} skills copied EXACTLY from the resume skills list, most relevant to this job first.
@@ -81,11 +81,25 @@ JOB: {job_title} at {company} ({job_location})
 Requirements:
 {letter_structure}
 - Use the exact job title "{job_title}" and the company name "{company}" once each.
-{keyword_rule}{authorization_rule}- Do NOT include a greeting ("Dear ..."), a sign-off, the name, a date or any placeholder in brackets.
+{keyword_rule}{years_rule}{authorization_rule}- Do NOT include a greeting ("Dear ..."), a sign-off, the name, a date or any placeholder in brackets.
 
 {style_rules}
 
 Return JSON: {{"paragraphs": ["...", "...", "..."]}}"""
+
+# Added only when the posting asks for more years of experience than you have.
+# {asked} = years the posting asks for, {have} = your years. The letter must not mention the numbers.
+LETTER_YEARS_RULE = (
+    "- The posting asks for {asked}+ years of experience and I have about {have}. Do not state either number "
+    "and do not apologize for it. Show I am ready with facts from the resume instead: the skills that match, "
+    "a real project or job task that used them, and how quickly I picked them up. Include one short sentence "
+    "about my willingness to learn, tied to something specific in the resume (a skill learned on the job, a "
+    "training, a certification).\n"
+)
+SUMMARY_YEARS_RULE = (
+    "This job asks for more years of experience than I have. In the summary, lead with the skills that match "
+    "and the real projects, keep the willingness to learn from my original summary, and do not mention years.\n"
+)
 
 # Optional lines in the letter prompt. Each line is left out when it doesn't apply.
 # {keywords} = skills of yours that the posting mentions (left out if there are none)
