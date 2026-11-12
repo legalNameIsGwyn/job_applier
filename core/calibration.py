@@ -20,7 +20,7 @@ import pandas as pd
 
 from documents.application_maker import matched_skills, missing_terms
 from config.settings import (
-    CALIBRATION_FILE, CALIBRATION_HISTORY_LIMIT, DEFAULT_MODEL_WEIGHT, MIN_RATINGS,
+    CALIBRATION_FILE, CALIBRATION_HISTORY_LIMIT, DEFAULT_MODEL_WEIGHT, FULL_TRUST_RATINGS, MIN_RATINGS,
 )
 from core.db import DB_PATH, get_db_connection
 from core.scorer import load_resume
@@ -136,7 +136,15 @@ def fit_calibration(rows: list[tuple[float, float, float]], latest_batch_only: b
 
     if best is None or best[0][0] <= 0:
         return None
-    _, w, a, b, mae = best
+    _, w_fit, a_fit, b_fit, _ = best
+    # With few ratings the fit is noisy, so only part of the way from the defaults is used.
+    # It reaches the full fit at FULL_TRUST_RATINGS ratings.
+    trust = min(1.0, len(rows) / FULL_TRUST_RATINGS)
+    w = round(DEFAULT_MODEL_WEIGHT + trust * (w_fit - DEFAULT_MODEL_WEIGHT), 2)
+    a = 1.0 + trust * (a_fit - 1.0)
+    b = trust * b_fit
+    z = w * m + (1 - w) * k
+    mae = float(np.mean(np.abs(np.clip(a * z + b, 0, 10) - r)))
     return {
         "fitted": True,
         "fitted_at": datetime.now().isoformat(timespec="seconds"),
@@ -145,9 +153,13 @@ def fit_calibration(rows: list[tuple[float, float, float]], latest_batch_only: b
         "w_model": w,
         "a": round(a, 4),
         "b": round(b, 4),
+        "trust": round(trust, 2),
+        "w_fit": w_fit,
+        "a_fit": round(a_fit, 4),
+        "b_fit": round(b_fit, 4),
         "spearman_model": _clean(spearman(m, r)),
         "spearman_keyword": _clean(spearman(k, r)),
-        "spearman_final": _clean(best[0][0]),
+        "spearman_final": _clean(spearman(z, r)),
         "mae_model": round(float(np.mean(np.abs(m - r))), 2),
         "mae_final": round(mae, 2),
     }

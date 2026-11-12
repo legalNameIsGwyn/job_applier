@@ -49,10 +49,15 @@ def gather(days: int = SUMMARY_DAYS, top: int = SUMMARY_TOP, min_score: float = 
         data["unfinished"] = [dict(zip(("title", "company", "job_url"), r)) for r in _query(
             conn, "SELECT j.title, j.company, j.job_url FROM applications a JOIN jobs j ON j.job_url = a.job_url "
                   "WHERE a.status = 'opened' ORDER BY a.updated_at DESC LIMIT 10")]
-        data["ratings"] = _query(conn, "SELECT COUNT(*) FROM ratings WHERE rating IS NOT NULL")[0][0]
+        data["ratings"] = _query(
+            conn, "SELECT COUNT(*) FROM ratings r JOIN jobs j ON j.job_url = r.job_url "
+                  "WHERE r.rating IS NOT NULL AND j.status = 'scored' "
+                  "AND COALESCE(j.model_score, j.match_score) > 0")[0][0]
         data["unrated_scored"] = _query(
             conn, "SELECT COUNT(*) FROM jobs j LEFT JOIN ratings r ON r.job_url = j.job_url "
-                  "WHERE j.status = 'scored' AND r.job_url IS NULL")[0][0]
+                  "WHERE r.job_url IS NULL AND j.status = 'scored' "
+                  "AND COALESCE(j.model_score, j.match_score) > 0 "
+                  "AND j.gaps NOT LIKE '%auto-rejected%' AND TRIM(j.description) <> ''")[0][0]
     finally:
         conn.close()
     try:   # application tracking (optional: needs tracking.py)

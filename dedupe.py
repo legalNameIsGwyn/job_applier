@@ -18,6 +18,8 @@ import re
 from core.db import DB_PATH, get_db_connection, init_db
 
 DESCRIPTION_SIMILARITY = 0.9
+SHORTER_OVERLAP = 0.75       # same title + same city: duplicate if 75% of the SHORTER posting's words are in the other
+MIN_WORDS_FOR_OVERLAP = 40   # ...but only when the shorter posting has at least this many distinct words
 COMPANY_SUFFIXES = {"inc", "incorporated", "llc", "ltd", "limited", "corp", "corporation", "co", "company", "plc", "the"}
 VAGUE_LOCATIONS = {"", "united states", "us", "usa", "remote", "anywhere"}
 
@@ -50,6 +52,13 @@ def similarity(a: frozenset, b: frozenset) -> float:
     return len(a & b) / len(a | b)
 
 
+def containment(a: frozenset, b: frozenset) -> float:
+    """Share of the shorter description's words that also appear in the other (catches a posting wrapped in page junk)."""
+    if not a or not b or min(len(a), len(b)) < MIN_WORDS_FOR_OVERLAP:
+        return 0.0
+    return len(a & b) / min(len(a), len(b))
+
+
 def is_duplicate(a: dict, b: dict) -> bool:
     """True if two jobs ({title, company, location, description}) are the same posting."""
     if title_key(a["title"]) != title_key(b["title"]):
@@ -59,7 +68,11 @@ def is_duplicate(a: dict, b: dict) -> bool:
     if company_key(a["company"]) == company_key(b["company"]) and same_location:
         return True
     sim = similarity(description_words(a.get("description")), description_words(b.get("description")))
-    return sim >= DESCRIPTION_SIMILARITY and (same_location or not loc_a or not loc_b)
+    if sim >= DESCRIPTION_SIMILARITY and (same_location or not loc_a or not loc_b):
+        return True
+    if loc_a and same_location:  # same city, different company name: compare against the shorter text
+        return containment(description_words(a.get("description")), description_words(b.get("description"))) >= SHORTER_OVERLAP
+    return False
 
 
 class KnownJobs:

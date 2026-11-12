@@ -41,9 +41,10 @@ from config.settings import (
 )
 from config.writing_style import (
     LETTER_AUTHORIZATION_RULE, LETTER_AVAILABILITY_CLAUSE, LETTER_KEYWORD_RULE, LETTER_PROMPT, LETTER_STRUCTURE,
-    LETTER_WARN_WORDS, SLOP_PATTERNS, STYLE_RULES, TAILOR_PROMPT, TRUTH_RULES,
+    LETTER_WARN_WORDS, LETTER_YEARS_RULE, SLOP_PATTERNS, STYLE_RULES, SUMMARY_YEARS_RULE, TAILOR_PROMPT, TRUTH_RULES,
 )
 from core.db import DB_PATH
+from core.filters import years_shortfall
 from core.scorer import MODEL, client, extract_json, load_resume
 from show_jobs import get_jobs
 
@@ -210,6 +211,7 @@ def tailor_resume(job: dict, resume: dict) -> dict:
         resume_facts=_resume_facts(resume), job_title=job["title"], company=job["company"],
         description=(job.get("description") or "")[:DESCRIPTION_CHARS_WRITING],
         truth_rules=TRUTH_RULES, max_skills=TAILOR_MAX_SKILLS, max_projects=MAX_PROJECTS,
+        years_rule=_fill("SUMMARY_YEARS_RULE", SUMMARY_YEARS_RULE) if years_shortfall(job.get("description")) else "",
     )
     raw = _ask(prompt, TAILOR_SCHEMA)
 
@@ -292,12 +294,14 @@ def write_cover_letter(job: dict, resume: dict) -> tuple[list[str], list[str]]:
               work_authorization=auth, availability_clause=availability_clause)
         if auth else ""
     )
+    short = years_shortfall(job.get("description"))
+    years_rule = _fill("LETTER_YEARS_RULE", LETTER_YEARS_RULE, asked=short[0], have=f"{short[1]:g}") if short else ""
     prompt = _fill(
         "LETTER_PROMPT", LETTER_PROMPT,
         name=resume["name"], resume_facts=_resume_facts(resume), job_title=job["title"], company=job["company"],
         job_location=job.get("location", ""), description=(job.get("description") or "")[:DESCRIPTION_CHARS_WRITING],
         truth_rules=TRUTH_RULES, letter_structure=LETTER_STRUCTURE, keyword_rule=keyword_rule,
-        authorization_rule=authorization_rule, style_rules=STYLE_RULES,
+        authorization_rule=authorization_rule, style_rules=STYLE_RULES, years_rule=years_rule,
     )
     try:
         paragraphs = _parse_letter(_ask(prompt, LETTER_SCHEMA))
@@ -568,6 +572,8 @@ def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = Fal
         f"Location:    {job.get('location', '')}",
         f"Match score: {job.get('match_score', 'n/a')}",
         f"Apply here:  {job.get('job_url', '')}",
+        *([f"Years gap:    posting asks {short[0]}+, you have about {short[1]:g}. The letter and resume summary "
+           "lead with your skills and willingness to learn instead."] if (short := years_shortfall(job.get("description"))) else []),
         "",
         "Keyword match (the posting's terms vs your real skills):",
         f"- On your resume and in the posting: {', '.join(have) or 'none found'}",

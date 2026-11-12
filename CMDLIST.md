@@ -44,14 +44,14 @@ change what it searches, scores and generates in `config\settings.py`. Your resu
 | `-y` / `--yes` | Don't ask for confirmation |
 
 ## Rating and calibration: `rating.py`
-| Flag | Meaning |
-|---|---|
-| *(none)* | Rate a batch of jobs you haven't rated yet |
-| `-n N` | Jobs per batch |
-| `--latest-only` | Tune using only this batch of ratings |
-| `--all-ratings` | Tune using every rating (overrides the setting) |
-| `--report` | Show the current calibration and exit |
-| `--reset` | Delete all ratings and fits (asks you to type RESET) |
+| Flag            | Meaning                                              |
+| --------------- | ---------------------------------------------------- |
+| *(none)*        | Rate a batch of jobs you haven't rated yet           |
+| `-n N`          | Jobs per batch                                       |
+| `--latest-only` | Tune using only this batch of ratings                |
+| `--all-ratings` | Tune using every rating (overrides the setting)      |
+| `--report`      | Show the current calibration and exit                |
+| `--reset`       | Delete all ratings and fits (asks you to type RESET) |
 
 ## Documents: `documents\application_maker.py`
 Run it as a module, because it lives in a package folder:

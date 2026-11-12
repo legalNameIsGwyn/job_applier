@@ -15,4 +15,8 @@ __pycache__/
 
 # Diagnostics
 linkedin_check.*
-page_*.html
+page_*.
+
+# Pi Agent
+AGENTS.md
+findings.md
