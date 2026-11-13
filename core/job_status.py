@@ -16,10 +16,12 @@ except ImportError:  # pragma: no cover
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/html"}
 
 CLOSED_TEXT = re.compile(
-    r"no longer (accepting|available|open)|not (currently )?accepting (new )?applications|"
+    r"no longer (accepting|taking|receiving|available|open|hiring)|"
+    r"(not|stopped) (currently )?(accepting|taking|receiving|reviewing) (new |any )?(applications?|applicants?)|"
     r"(position|job|role|posting|requisition|opening) (has been |is |was )?(filled|closed|expired|removed|unavailable)|"
     r"this (job|position|posting) (is|has been) (closed|filled|removed|no longer)|"
-    r"applications? (are |is |have been )?closed|job (not found|has expired)|"
+    r"applications? (are |is |have been )?closed|applicants? (are )?no longer|"
+    r"job (not found|has expired)|"
     r"the page you.?re looking for (doesn.?t|does not) exist|couldn.?t find (that|this) (job|position)",
     re.IGNORECASE,
 )

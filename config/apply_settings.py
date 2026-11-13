@@ -38,7 +38,7 @@ CHECK_STILL_OPEN = True
 WORKDAY_AUTO_ADVANCE = True
 WORKDAY_MAX_STEPS = 12
 # ---------------------------------------------------------------------- browser
-BROWSER = "firefox"   # "firefox" or "chromium"
+BROWSER = "chromium"   # "firefox" or "chromium"
 BROWSER_PROFILE_DIR = PROJECT_DIR / "browser_profile_firefox"   # keeps your logins between runs
 
 # ------------------------------------------------------------ several jobs at once
