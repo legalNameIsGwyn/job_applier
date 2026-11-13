@@ -47,10 +47,13 @@ def load_resume() -> dict:
 def blocked_reason(title: str, description: str) -> str | None:
     """Return a reason if the posting needs clearance / US citizenship, else None."""
     text = f"{title}\n{description}".lower()
-    if re.search(NO_BLOCKER_PATTERN, text):
-        return None
+    no_clearance = re.search(NO_BLOCKER_PATTERN, text)
     for pattern in BLOCKER_PATTERNS:
-        if re.search(pattern, text):
+        if no_clearance and "citizen" not in pattern:
+            continue    # "no clearance required" cancels clearance rules only, never citizenship
+        for m in re.finditer(pattern, text):
+            if re.match(r"[^.\n]{0,40}?:\s*(no|false|n/?a)\b", text[m.end():m.end() + 50]):
+                continue    # "US Citizenship Required for this Position: No"
             return "Requires clearance or US citizenship (auto-rejected)"
     return None
 

@@ -113,12 +113,23 @@ def _parse_linkedin_apply_link(html: str) -> str | None:
     comment and on the button itself, as a redirect holding the employer's URL in ?url=...
     All the places it can appear are checked.
     """
-    candidates = re.findall(r'id="applyUrl"[^>]*>\s*<!--\s*"?(.*?)"?\s*-->', html, re.S)
-    soup = BeautifulSoup(html, "html.parser")
-    for a in soup.select('a.apply-button, a[data-tracking-control-name*="apply"], a[href*="externalApply"]'):
-        if a.get("href"):
-            candidates.append(a["href"])
-    candidates += re.findall(r"externalApply/\d+\?[^\"'\s<>]+", html.replace("\\/", "/"))  # also inside script JSON
+    candidates = []
+    
+    # Pattern 1: Hidden applyUrl comment (current)
+    candidates.extend(re.findall(r'id="applyUrl"[^>]*>\s*<!--\s*"?(.*?)"?\s*-->', html, re.S))
+    
+    # Pattern 2: Data attributes on apply button
+    candidates.extend(re.findall(r'data-.*?apply.*?"\s*:\s*"([^"]+)"', html))
+    
+    # Pattern 3: Job description section
+    candidates.extend(re.findall(r'<div[^>]*class="job-description[^>]*>(.*?)</div>', html, re.S))
+    
+    # Pattern 4: Application link in description
+    candidates.extend(re.findall(r'<a[^>]*href="([^"]*apply[^"]*)"', html))
+    
+    # Pattern 5: JSON in script tags
+    candidates.extend(re.findall(r'externalApply/\d+\?[^"]*"', html))
+    
     for link in candidates:
         target = _unwrap_external(link)
         if target:
