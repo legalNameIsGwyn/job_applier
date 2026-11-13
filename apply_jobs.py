@@ -160,17 +160,23 @@ def resolve_via_linkedin(jobs: list[dict]) -> int:
             results = resolve_links(context, [j["job_url"] for j in todo], LINKEDIN_CLICK_DELAY)
         finally:
             context.close()
-    found = 0
+        found = closed = 0
     for job in todo:
         outcome, url = results.get(job["job_url"], ("login", None))
         if outcome == "link" and url:
             set_apply_url(job["job_url"], url)
             job["apply_url"] = url
             found += 1
+        elif outcome == "closed":
+            record_application(job["job_url"], "closed", ats="linkedin",
+                               note="LinkedIn says it is no longer taking applications")
+            jobs.remove(job)   # drop it from this run
+            closed += 1
         elif outcome in ("easy", "unknown"):  # remember we tried, so it isn't clicked again every run
             set_apply_url(job["job_url"], CLICK_CHECKED)
             job["apply_url"] = CLICK_CHECKED
-    print(f"[APPLY] Found {found} employer link(s) through LinkedIn.")
+    print(f"[APPLY] Found {found} employer link(s) through LinkedIn."
+          + (f" {closed} posting(s) are closed and were dropped." if closed else ""))
     return found
 
 

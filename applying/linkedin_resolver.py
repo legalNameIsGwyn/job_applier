@@ -13,6 +13,7 @@ import random
 import re
 import time
 from urllib.parse import parse_qs, unquote, urlsplit
+from core.job_status import closed_in_text
 
 # LinkedIn's own page furniture (messaging dock, top navigation): never click anything in these.
 CHROME = "#msg-overlay, [class*='msg-overlay'], #global-nav, .global-nav, [role=navigation]"
@@ -151,21 +152,37 @@ def find_apply_control(page) -> tuple[str, object, str]:
         return "none", None, f"Buttons/links mentioning apply: {_describe_apply_controls(controls)}"
     return "apply", apply, _describe(apply)
 
+def _page_says_closed(page) -> bool:
+    """True if the top of the page (above the description) says the job no longer takes applications.
+    Only the part above 'About the job' is read, so a posting that says 'we are not accepting
+    applications from agencies' doesn't count as closed."""
+    try:
+        text = page.inner_text("body", timeout=5000)
+    except Exception:
+        return False
+    cut = text.find("About the job")
+    return closed_in_text(text[:cut] if cut > 0 else text[:2500])
 
 def resolve_apply_link(context, job_url: str) -> tuple[str, str | None]:
-    """Returns (outcome, url). outcome: link | easy | login | unknown."""
+    """Returns (outcome, url). outcome: link | easy | closed | login | unknown."""
     from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
     page = context.new_page()
     try:
         page.goto(job_url, timeout=30000, wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
+
         if NOT_A_JOB_PAGE.search(page.url):
             print(f"[LINKEDIN] LinkedIn sent us to {page.url} instead of the job. Not clicking anything.")
             return "unknown", None
         if LOGIN_WALL.search(page.url) or page.locator(".contextual-sign-in-modal").count() > 0:
             return "login", None
+        if _page_says_closed(page):
+            print("[LINKEDIN] This posting is closed (no longer taking applications).")
+            return "closed", None
+        
         kind, apply, info = find_apply_control(page)
+
         if kind == "direct":
             print(f"[LINKEDIN] Read the employer link from the Apply button (nothing clicked): {info}")
             return "link", info
@@ -176,6 +193,7 @@ def resolve_apply_link(context, job_url: str) -> tuple[str, str | None]:
             print(f"[LINKEDIN] No Apply button found. {info}")
             return "unknown", None
         print(f"[LINKEDIN] Clicking {info}")
+        
         try:
             with context.expect_page(timeout=8000) as opened:
                 apply.click()
