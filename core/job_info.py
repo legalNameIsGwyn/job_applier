@@ -111,6 +111,8 @@ def summary_points(description: str, per_section: int = 3, width: int = 140) -> 
 
     sentences = re.split(r"(?<=[.!?])\s+", " ".join((description or "").split()))
     for s in sentences:
+        if not _usable(s):
+            continue
         for name, pattern in (("Requirements", r"requir|must|experience (with|in)|proficien|knowledge of|degree"),
                               ("Responsibilities", r"responsible|you will|design|develop|build|maintain|collaborate")):
             if len(out[name]) < per_section and 25 <= len(s) and re.search(pattern, s, re.I):
@@ -122,3 +124,76 @@ def summary_points(description: str, per_section: int = 3, width: int = 140) -> 
 def _clip(text: str, width: int) -> str:
     text = " ".join(text.split())
     return text if len(text) <= width else text[: width - 3].rstrip() + "..."
+
+# ------------------------------------------------------------------ card helpers (rating.py)
+
+_BOILERPLATE = re.compile(
+    r"equal (?:employment )?opportunity|\beeo\b|affirmative action|compensation|salary range|pay range|base pay|"
+    r"\bbenefits?\b|401\(?k\)?|req(?:uisition)?\.? ?(?:id|#|no)|job (?:id|number|code|posting)|about (?:us|the company)|"
+    r"who we are|our (?:mission|values|culture)|click |apply (?:now|today)|privacy|e-verify|accommodation|"
+    r"disabilit|veteran|background check|drug[- ]free|citizenship required|clearance|"
+    r"is an? (?:leading|global|world)|leader in|founded in|headquartered",
+    re.I,
+)
+
+
+def _usable(sentence: str) -> bool:
+    """False for header junk (SHOUTING text, 'Req ID: ... Location: ...') and company / legal boilerplate."""
+    letters = [c for c in sentence if c.isalpha()]
+    if not letters or sum(c.isupper() for c in letters) / len(letters) > 0.6:
+        return False
+    return sentence.count(":") < 2 and not _BOILERPLATE.search(sentence)
+
+
+def posting_summary(description: str, max_sentences: int = 3) -> str:
+    """The first few real sentences of a posting: prose only (no bullets or headings), no boilerplate."""
+    lines = [ln.strip() for ln in (description or "").splitlines() if ln.strip()]
+    prose = [ln for ln in lines if not _BULLET_RE.match(ln) and (len(ln) >= 70 or ln.endswith((".", "!", "?")))]
+    text = " ".join((" ".join(prose) if len(lines) > 1 else description or "").split())
+    picked = []
+    for s in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", text):
+        s = s.strip(" -•*·")
+        if 40 <= len(s) <= 400 and _usable(s):
+            picked.append(s)
+            if len(picked) == max_sentences:
+                break
+    return " ".join(picked)
+
+
+_YEARS_RANGE_RE = re.compile(r"(\d{1,2})\s*(?:-|–|—|to)\s*(\d{1,2})\+?\s*(?:years?|yrs?)", re.I)
+
+
+def years_range(description: str):
+    """(low, high) years asked for; (low, None) for 'N+'; None if the posting states none."""
+    text = " ".join((description or "").split())
+    m = _YEARS_RANGE_RE.search(text)
+    if m:
+        lo, hi = int(m.group(1)), int(m.group(2))
+        if 0 <= lo <= hi <= 30:
+            return lo, hi
+    lo = min_years_required(description or "")
+    return (lo, None) if lo else None
+
+
+_CITIZEN_RE = re.compile(
+    r"(?:u\.?s\.?|united states)\s+citizen(?:ship)?\s+(?:is\s+)?(?:required|only|needed)"
+    r"|must be (?:a )?(?:u\.?s\.?|united states) citizen|citizenship (?:is )?required|u\.?s\.? citizens? only", re.I)
+_CLEARANCE_RE = re.compile(
+    r"security clearance|secret clearance|top[- ]secret|\bts\s*/\s*sci\b|polygraph|active clearance|clearance (?:is )?required", re.I)
+_NO_CLEARANCE_RE = re.compile(
+    r"no (?:security )?clearance|clearance (?:is )?not required|not require (?:a )?(?:security )?clearance|without (?:a )?clearance", re.I)
+_ANSWERED_NO = re.compile(r"[^.\n]{0,40}?:\s*(?:no|false|n/?a)\b", re.I)
+
+
+def eligibility_flags(title: str, description: str) -> list[str]:
+    """Warnings for the top of a rating card: citizenship or clearance requirements (display only)."""
+    text = f"{title}\n{description or ''}"
+    flags = []
+    for m in _CITIZEN_RE.finditer(text):
+        if not _ANSWERED_NO.match(text[m.end(): m.end() + 50]):   # "US Citizenship Required: No" is fine
+            flags.append("US CITIZENSHIP REQUIRED")
+            break
+    if _CLEARANCE_RE.search(text) and not _NO_CLEARANCE_RE.search(text):
+        required = re.search(r"clearance (?:is )?required|active .{0,20}clearance|must (?:have|hold|obtain|possess)[^.]{0,40}clearance", text, re.I)
+        flags.append("SECURITY CLEARANCE REQUIRED" if required else "SECURITY CLEARANCE MENTIONED")
+    return flags

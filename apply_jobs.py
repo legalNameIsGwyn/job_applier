@@ -46,6 +46,8 @@ from core.scorer import load_resume
 # Optional settings (defaults apply if config/apply_settings.py doesn't have them yet)
 GENERIC_AUTO_ADVANCE = getattr(_cfg, "GENERIC_AUTO_ADVANCE", True)
 GENERIC_MAX_STEPS = getattr(_cfg, "GENERIC_MAX_STEPS", 10)
+BROWSER = getattr(_cfg, "BROWSER", "chromium")
+PARALLEL_JOBS = getattr(_cfg, "PARALLEL_JOBS", 3)
 
 JOB_COLUMNS = ("title", "company", "location", "job_url", "description", "match_score", "apply_url", "site")
 
@@ -134,9 +136,9 @@ def find_employer_links(jobs: list[dict]) -> int:
     return len(todo)
 
 
-def _open_profile(playwright):
-    return playwright.chromium.launch_persistent_context(
-        str(BROWSER_PROFILE_DIR), headless=HEADLESS, slow_mo=SLOW_MO_MS, no_viewport=True)
+def _open_profile(playwright, profile_dir=None):
+    return getattr(playwright, BROWSER).launch_persistent_context(
+        str(profile_dir or BROWSER_PROFILE_DIR), headless=HEADLESS, slow_mo=SLOW_MO_MS, no_viewport=True)
 
 
 def resolve_via_linkedin(jobs: list[dict]) -> int:
@@ -259,7 +261,7 @@ def print_report(report) -> None:
 # --------------------------------------------------------------------------------- CLI
 
 
-def run(limit, min_score, days, include_opened=False, url=None, list_only=False) -> None:
+def run(limit, min_score, days, include_opened=False, url=None, list_only=False, parallel=PARALLEL_JOBS) -> None:
     init_db()
     jobs = get_candidates(min_score, days, include_opened, url)
     if not jobs:
@@ -284,9 +286,15 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False)
             print(f"[APPLY] ready {label}  [{ats}{' - generic filler, best effort' if ats in GENERIC_SITES else ''}]")
             ready.append((job, link, ats))
     print(f"\n[APPLY] {len(ready)} of {len(jobs)} job(s) can be filled.")
+
     if list_only or not ready:
         return
-
+    
+    if parallel > 1 and len(ready[:limit]) > 1:
+        from applying.worker import launch_all
+        launch_all(ready[:limit], parallel, prepare=document_files)
+        return
+    
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -334,6 +342,7 @@ if __name__ == "__main__":
     parser.add_argument("--login", nargs="?", const="linkedin", choices=["linkedin", "indeed"],
                         help="open the saved browser on a sign-in page so you can log in by hand")
     parser.add_argument("--list", action="store_true", help="show what would be filled; open nothing")
+    parser.add_argument("--parallel", type=int, default=PARALLEL_JOBS, help="applications open at once, each in its own window (1 = one at a time here)")
     args = parser.parse_args()
 
     if args.login:
@@ -347,4 +356,4 @@ if __name__ == "__main__":
         ok = set_apply_url(*args.set_url)
         print("[APPLY] Saved." if ok else "[APPLY] That job URL isn't in the database.")
     else:
-        run(args.top, args.min_score, args.days, args.include_opened, args.url, args.list)
+        run(args.top, args.min_score, args.days, args.include_opened, args.url, args.list, args.parallel)

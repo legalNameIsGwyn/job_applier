@@ -7,7 +7,7 @@ and then STOPS. It never clicks Submit: you read the form, fix anything wrong, a
 from config.settings import PROJECT_DIR
 
 # ------------------------------------------------------------------- which jobs
-APPLY_MIN_SCORE = 7        # only jobs scoring at least this
+APPLY_MIN_SCORE = 5        # only jobs scoring at least this
 APPLY_MAX_PER_RUN = 5      # most jobs to open per run
 APPLY_WINDOW_DAYS = 14     # only jobs scraped in the last N days
 
@@ -19,9 +19,10 @@ ENABLED_SITES = {
     "lever": True,
     "ashby": True,
     "workday": True,
-    "linkedin": True,   # opt-in: LinkedIn's terms forbid automation and it can restrict your account
-    "indeed": False,     # opt-in: same risk
-    "generic": True,     # iCIMS, Taleo, SmartRecruiters, Workable, employer career pages...
+    "linkedin": True,   
+    "indeed": False,     
+    "generic": True,     
+    # iCIMS, Taleo, SmartRecruiters, Workable, employer career pages...
 }
 
 GENERIC_AUTO_ADVANCE = True   # click Next/Continue on its own when nothing on the page needs you
@@ -37,7 +38,12 @@ CHECK_STILL_OPEN = True
 WORKDAY_AUTO_ADVANCE = True
 WORKDAY_MAX_STEPS = 12
 # ---------------------------------------------------------------------- browser
-BROWSER_PROFILE_DIR = PROJECT_DIR / "browser_profile"  # keeps your logins between runs
+BROWSER = "firefox"   # "firefox" or "chromium"
+BROWSER_PROFILE_DIR = PROJECT_DIR / "browser_profile_firefox"   # keeps your logins between runs
+
+# ------------------------------------------------------------ several jobs at once
+PARALLEL_JOBS = 3   # applications open at once, each in its own terminal + browser window (1 = one at a time)
+PARALLEL_PROFILE_DIR = PROJECT_DIR / "browser_profile_workers"   # temporary copies of your profile
 HEADLESS = False           # leave False: you need to see and review the form
 SLOW_MO_MS = 0             # slow every browser action by this many ms (try 100 to watch it work)
 PAGE_TIMEOUT_MS = 30000    # how long to wait for a page to load

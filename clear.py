@@ -97,7 +97,7 @@ def clear_database(db_path=DB_PATH, include_ratings=False, backup=True, backup_d
 
     if include_ratings:
         Path(calibration_file).unlink(missing_ok=True)
-        show("[CLEAR] Deleted the score calibration (calibration.json).")
+        show(f"[CLEAR] Deleted the score calibration: {Path(calibration_file).resolve()}")
     show("[CLEAR] Database cleared.")
     return {t: n or 0 for t, n in counts.items()}
 
@@ -147,7 +147,7 @@ if __name__ == "__main__":
     do_db, do_docs = args.what in ("db", "all"), args.what in ("docs", "all")
     parts = []
     if do_db:
-        parts.append("empty the jobs database" + (" AND delete your hand ratings" if args.ratings else ""))
+        parts.append("empty the jobs database" + (f" AND delete your hand ratings and {CALIBRATION_FILE.resolve()}" if args.ratings else ""))
     if do_docs:
         parts.append("move the application documents to an archive folder")
     if not args.dry_run and not args.yes:

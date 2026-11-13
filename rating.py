@@ -25,6 +25,9 @@ Every call:
 
 import argparse
 import json
+import os
+import re
+import shutil
 import random
 import sqlite3
 import textwrap
@@ -35,8 +38,13 @@ from core.calibration import (
 )
 from config.settings import (
     FIT_ON_ALL_RATINGS, RATING_BATCH_SIZE, RATING_DESC_CHARS, RATING_DESCRIPTION, RATING_SHOW_MODEL_NOTES,
-    RATING_SUMMARY_BULLETS, FULL_TRUST_RATINGS,
+    RATING_SUMMARY_BULLETS, FULL_TRUST_RATINGS, RATING_CARD_WIDTH, RATING_CARD_MAX_WIDTH,
 )
+
+from core.job_info import (
+    eligibility_flags, posting_summary, salary_from_text, special_notes, summary_points, years_range,
+)
+
 from core.db import DB_PATH, init_db
 from core.job_info import salary_from_text, special_notes, summary_points
 from core.filters import min_years_required, my_years_experience, years_gap_note
@@ -56,6 +64,51 @@ Scores are hidden so they don't influence you.
 """
 
 
+# -------------------------------------------------------------------
+# Colors for the rating cards (ANSI codes; Windows Terminal and PowerShell show them)
+# -------------------------------------------------------------------
+if os.name == "nt":
+    os.system("")   # switches ANSI colors on in older Windows consoles
+
+COLORS = {
+    "primary": "94",   # bright blue: header, labels
+    "accent": "95",    # bright magenta
+    "success": "92",   # bright green
+    "warning": "93",   # bright yellow
+    "danger": "91",    # bright red
+    "cyan": "96",      # bright cyan
+    "gray": "37",      # light gray: body text
+}
+
+
+def colorize(text: str, color: str, bold: bool = False) -> str:
+    """Wrap text in an ANSI color (and optionally bold)."""
+    return f"\033[{'1;' if bold else ''}{COLORS[color]}m{text}\033[0m"
+
+
+def success_text(text: str) -> str:
+    return colorize(text, "success")
+
+
+def warning_text(text: str) -> str:
+    return colorize(text, "warning")
+
+
+def danger_text(text: str, bold: bool = False) -> str:
+    return colorize(text, "danger", bold)
+
+
+def cyan_text(text: str) -> str:
+    return colorize(text, "cyan")
+
+
+def gray_text(text: str) -> str:
+    return colorize(text, "gray")
+
+
+def primary_text(text: str, bold: bool = False) -> str:
+    return colorize(text, "primary", bold)
+
 def _connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -71,7 +124,7 @@ def eligible_jobs(db_path: str = DB_PATH) -> list[dict]:
                       j.matched_skills, j.gaps, j.salary,
                       COALESCE(j.model_score, j.match_score) AS model_score
                FROM jobs j LEFT JOIN ratings r ON r.job_url = j.job_url
-               WHERE r.job_url IS NULL AND j.job_url IS NOT NULL
+               WHERE r.job_url IS NULL
                  AND j.status = 'scored'
                  AND COALESCE(j.model_score, j.match_score) > 0
                  AND j.gaps NOT LIKE '%auto-rejected%'
@@ -181,64 +234,163 @@ def mark_duplicate(job_url: str, original: dict | None, db_path: str = DB_PATH) 
         conn.close()
 
 
-def _show_job(i: int, total: int, job: dict, show, similar=()) -> None:
-    """One job's card: pay, notes, years of experience, (optionally) the model's skills and gaps, and the posting."""
-    description = job["description"] or ""
-    show("\n" + "=" * 72)
-    show(f"[{i}/{total}] {job['title']}")
-    show(f"{job['company']}  |  {job['location']}")
-    show(job["job_url"])
-    show("-" * 72)
+BULLET = "•"
+SEP = "\u00a0· "                                          # the dot stays with the skill before it
+LABEL_W = 10                                              # width of the label column
+CARD_SECTIONS = ("Responsibilities", "Requirements", "Nice to have")   # delete a name to hide that section
+CARD_MAX_BULLETS = None                                   # None = show every bullet
 
-    salary = job.get("salary")
-    if salary:
-        show(f"Salary: {salary}")
+
+def _width() -> int:
+    """Card width: RATING_CARD_WIDTH if set, otherwise the terminal's width (capped at RATING_CARD_MAX_WIDTH)."""
+    if RATING_CARD_WIDTH:
+        return max(40, int(RATING_CARD_WIDTH))
+    columns = shutil.get_terminal_size((100, 24)).columns
+    return max(60, min(columns - 2, RATING_CARD_MAX_WIDTH))
+
+
+def _wrap_lines(text: str, width: int, first: str = "", rest: str = "") -> list[str]:
+    """Wrap to width; a non-breaking space inside a phrase keeps it on one line."""
+    lines = textwrap.wrap(text, max(width, 20), initial_indent=first, subsequent_indent=rest,
+                          break_on_hyphens=False)
+    return [line.replace("\u00a0", " ") for line in lines] or [first.rstrip()]
+
+
+def _field(label: str, lines: list[str], paint, show) -> None:
+    """Print lines beside a label; later lines line up under the first."""
+    for n, line in enumerate(lines):
+        head = primary_text(label.ljust(LABEL_W)) if n == 0 else " " * LABEL_W
+        show(f" {head} {paint(line)}")
+
+
+def _text_field(label: str, text: str, paint, show) -> None:
+    _field(label, _wrap_lines(text, _width() - LABEL_W - 2), paint, show)
+
+
+def _bullet_field(label: str, items: list[str], paint, show) -> None:
+    lines = []
+    for item in items:
+        lines += _wrap_lines(item, _width() - LABEL_W - 2, f"{BULLET} ", "  ")
+    _field(label, lines, paint, show)
+
+
+def _pretty_salary(text: str) -> str:
+    text = re.sub(r"(\d)\.00\b", r"\1", text or "")
+    text = re.sub(r"\s+(?:-|—)\s+", " – ", text)
+    return " ".join(text.split())
+
+
+def _salary_color(text: str):
+    """Green for a high yearly salary, red for a low one, gray otherwise (hourly rates are left gray)."""
+    match = re.search(r"\d[\d,]*(?:\.\d+)?", text)
+    try:
+        amount = float(match.group().replace(",", "")) if match else None
+    except ValueError:
+        amount = None
+    if amount is None or amount < 1000 or re.search(r"hour|/hr", text, re.I):
+        return gray_text
+    return success_text if amount >= 100000 else danger_text if amount < 50000 else gray_text
+
+
+def _show_salary(job: dict, description: str, show) -> None:
+    quoted = _pretty_salary(job.get("salary") or salary_from_text(description))
+    _text_field("Salary", quoted or "not listed", _salary_color(quoted) if quoted else gray_text, show)
+
+
+def _show_years(description: str, show) -> None:
+    span = years_range(description)
+    if span is None:
+        _text_field("Years", "no minimum listed", gray_text, show)
+        return
+    low, high = span
+    asked = f"{low}+ yrs" if high is None else f"{low} yrs" if high == low else f"{low}–{high} yrs"
+    mine = my_years_experience()
+    if mine >= low:
+        _text_field("Years", f"{asked}  (you have {mine:g}: qualified)", success_text, show)
     else:
-        quoted = salary_from_text(description)
-        show(f"Salary: {quoted} (quoted in the posting)" if quoted else "Salary: not listed")
+        _text_field("Years", f"{asked}  (you have {mine:g}: may be underqualified)", danger_text, show)
 
-    notes = special_notes(job["title"], job["location"], description)
-    show("Special notes: " + ("; ".join(notes) if notes else "none"))
 
-    years_gap = years_gap_note(description)
-    if not years_gap:
-        asked = min_years_required(description)
-        show(f"Years: asks {asked}+, you have about {my_years_experience():g} (fine)" if asked is not None
-             else "Years: none stated in the posting (press d to check)")
-    for score, other in similar:
-        show(f"!! Possibly the same posting as: {_describe(score, other)}. Type x if it is.")
+def _show_model_notes(skills: list[str], gaps: list[str], show) -> None:
+    if RATING_SHOW_MODEL_NOTES and skills:
+        _text_field("Skills", SEP.join(s.replace(" ", "\u00a0") for s in skills), success_text, show)
+    if gaps:
+        _bullet_field("Gaps", gaps, danger_text, show)
+    elif RATING_SHOW_MODEL_NOTES:
+        _text_field("Gaps", "none listed", gray_text, show)
 
-    if RATING_SHOW_MODEL_NOTES:
-        skills, gaps = _json_list(job.get("matched_skills")), _json_list(job.get("gaps"))
-        if years_gap:
-            gaps = ["!! " + years_gap] + gaps   # the years gap always comes first
-        show("Matching skills (model): " + (", ".join(skills) if skills else "none listed"))
-        show("Gaps (model): " + ("; ".join(gaps) if gaps else "none listed"))
-    elif years_gap:
-        show("Gaps: !! " + years_gap)
 
-    show("-" * 72)
+def _show_posting(description: str, show) -> None:
     flat = " ".join(description.split())
+    excerpt = flat[:RATING_DESC_CHARS] + (" ..." if len(flat) > RATING_DESC_CHARS else "")
     if RATING_DESCRIPTION == "full":
-        show(textwrap.fill(flat, 100))
+        _text_field("Posting", flat, gray_text, show)
         return
     if RATING_DESCRIPTION == "excerpt":
-        show(textwrap.fill(flat[:RATING_DESC_CHARS], 100) + (" ..." if len(flat) > RATING_DESC_CHARS else ""))
+        _text_field("Posting", excerpt, gray_text, show)
         return
-    points = summary_points(description, RATING_SUMMARY_BULLETS)
-    if not points:
-        show(textwrap.fill(flat[:RATING_DESC_CHARS], 100) + (" ..." if len(flat) > RATING_DESC_CHARS else ""))
-    for section, bullets in points.items():
-        show(f"{section}:")
+    summary = posting_summary(description)
+    points = summary_points(description, CARD_MAX_BULLETS or 999, 100_000)
+    if summary:
+        _text_field("Summary", summary, gray_text, show)
+    shown = False
+    for section in CARD_SECTIONS:
+        bullets = [b for b in points.get(section, []) if b[:50] not in summary]   # don't repeat the summary
+        if not bullets:
+            continue
+        if summary or shown:
+            show("")
+        shown = True
+        show(" " + primary_text(section))
         for bullet in bullets:
-            show(_wrap("- " + bullet))
-    show("(d = read the full posting)")
+            for line in _wrap_lines(bullet, _width() - 3, f"{BULLET} ", "  "):
+                show("   " + gray_text(line))
+    if not summary and not shown:
+        _text_field("Posting", excerpt, gray_text, show)
 
+
+def _show_job(i: int, total: int, job: dict, show, similar=()) -> None:
+    """One job's card: header, warnings, salary / years / notes, the model's skills and gaps, then the posting."""
+    description = job["description"] or ""
+    show(cyan_text(f"[{i}/{total}]"))
+    show(primary_text("=" * 60))
+    show(primary_text(job["title"], bold=True))
+    show(gray_text(f"{job['company']}  |  {job['location']}"))
+    show(cyan_text(job["job_url"]))
+    show(primary_text("=" * 60))
+    show("")
+
+    flags = eligibility_flags(job["title"], description)
+    for flag in flags:
+        show(" " + danger_text(f"!! {flag}", bold=True))
+    if flags:
+        show("")
+
+    _show_salary(job, description, show)
+    _show_years(description, show)
+    notes = [n for n in special_notes(job["title"], job["location"], description) if not n.startswith("Asks for")]
+    if notes:
+        _bullet_field("Notes", notes, warning_text, show)
+    if similar:
+        _bullet_field("Similar", [f"Possibly the same posting: {_describe(s, o)}" for s, o in similar], danger_text, show)
+    show("")
+
+    gaps = _json_list(job.get("gaps"))
+    gap_note = years_gap_note(description)
+    if gap_note:
+        gaps = [gap_note] + gaps
+    _show_model_notes(_json_list(job.get("matched_skills")), gaps, show)
+    show("")
+
+    _show_posting(description, show)
+    show("")
 
 def _show_full(job: dict, show) -> None:
-    show("\n" + "-" * 72)
-    show(textwrap.fill(" ".join((job["description"] or "").split()), 100))
-    show("-" * 72)
+    show("")
+    show(primary_text("-" * 60))
+    for line in textwrap.wrap(" ".join((job["description"] or "").split()), _width()):
+        show(gray_text(line))
+    show(primary_text("-" * 60))
 
 
 def _ask_rating(ask, on_detail=None) -> float | None | str:

@@ -11,8 +11,8 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent  # the folder that contains
 
 # --------------------------------------------------------------------- files and folders
 RESUME_FILE = PROJECT_DIR / "data" / "resume.json"                 # your resume data (stays outside config/)
-DB_PATH = str(PROJECT_DIR / "data" / "jobs_db.sqlite")             # the jobs database
-CALIBRATION_FILE = PROJECT_DIR / "data" / "calibration.json"       # score tuning learned from your ratings
+DB_PATH = str(PROJECT_DIR / "data" / "test_jobs_db.sqlite")             # the jobs database
+CALIBRATION_FILE = PROJECT_DIR / "data" / "test_calibration.json"       # score tuning learned from your ratings
 APPLICATIONS_DIR = PROJECT_DIR / "data" /"applications"           # generated resumes and cover letters
 
 # -------------------------------------------------------------------------- what to search
@@ -27,7 +27,7 @@ LOCATION = "Norfolk, VA"
 RESULTS_WANTED = 50   # per site, per search term
 HOURS_OLD = 72    
 
-LINKEDIN_RESULTS_WANTED = 15   # LinkedIn blocks big pulls
+LINKEDIN_RESULTS_WANTED = 50   # LinkedIn blocks big pulls
 LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS = False  # False = JobSpy won't open every job page
 # main.py's slower fetcher fills descriptions in instead
 
@@ -88,8 +88,8 @@ NOTES_FILENAME = "notes.txt"    # the review notes saved in each application fol
 
 # ------------------------------------------------------------------- scores and rating
 DEFAULT_MODEL_WEIGHT = 0.7      # before you rate any jobs: 70% model score, 30% keyword score
-MIN_RATINGS = 10                # fewest hand ratings needed to tune the scores
-FULL_TRUST_RATINGS = 30         # below this many ratings the fit is pulled toward the defaults (fully trusted at this many)
+MIN_RATINGS = 50               # fewest hand ratings needed to tune the scores
+FULL_TRUST_RATINGS = 100        # below this many ratings the fit is pulled toward the defaults (fully trusted at this many)
 RATING_BATCH_SIZE = 20          # jobs shown per `python rating.py`
 RATING_DESC_CHARS = 900         # how much of each description is shown while rating
 RATING_DESCRIPTION = "summary"  # "summary", "excerpt" (first RATING_DESC_CHARS characters) or "full"
@@ -104,3 +104,8 @@ SUMMARY_DAYS = 1              # how far back "new" reaches
 SUMMARY_TOP = 10              # best matches listed
 SUMMARY_MIN_SCORE = 6         # what counts as a match
 SUMMARY_DIR = PROJECT_DIR / "reports"   # optional: where --html reports are saved
+
+# ------------------------------------------------------------------- rating
+
+RATING_CARD_WIDTH = None       # None = fit the terminal; or a number like 90
+RATING_CARD_MAX_WIDTH = 100    # cap used when RATING_CARD_WIDTH is None

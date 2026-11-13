@@ -112,7 +112,7 @@ def render_text(d: dict) -> str:
     lines += [_job_line(j) + f"\n        {j['apply_url'] if (j['apply_url'] or '').startswith('http') else j['job_url']}"
               for j in d["top_new"]] or ["  none"]
 
-    lines += ["", f"READY TO APPLY: {len(d['ready'])} job(s)  (python apply_jobs.py --top 3)"]
+    lines += ["", f"RECOMMENDED TO APPLY: {len(d['ready'])} job(s)  (python apply_jobs.py --top 3)"]
     lines += [f"  {j['match_score']:>4g}  {j['title'][:40]} - {j['company'][:22]}  [{j['ats']}]" for j in d["ready"][:10]]
     if d["blocked"]:
         lines.append("CAN'T BE FILLED YET")
