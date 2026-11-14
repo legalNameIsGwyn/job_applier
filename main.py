@@ -10,12 +10,17 @@ from datetime import datetime
 
 import pandas as pd
 
-from core.db import DB_PATH, FAILED_SCORE, get_scored_urls, init_db, save_job
+import argparse
+
+from config.settings import DB_PATH
+from db.calibrations import load_calibration
+from db.queries import get_jobs, load_known
+from db.repo import FAILED_SCORE, get_scored_urls, init_db, save_job
+from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 from core.scraper import fill_missing_descriptions, scrape_multiple_terms
 from core.scorer import MODEL, load_resume, score_job
 from documents.application_maker import create_application, job_folder
-from tools.show_jobs import get_jobs
-from tools.dedupe import duplicate_gap, load_known
+from tools.dedupe import KnownJobs, duplicate_gap
 from core.filters import filter_reason
 from core.job_info import format_salary
 from core.calibration import blend, keyword_score
@@ -138,6 +143,7 @@ async def main(
     """
     print(f"[PIPELINE] Starting job scraper at {datetime.now().isoformat()}")
     print("=" * 50)
+    print(f"[PIPELINE] Profile: {active_profile_name()}")
 
     # Step 1: Initialize database
     init_db()
@@ -209,7 +215,8 @@ async def main(
     # Step 4: Score each job and save it immediately
     results = []
     consecutive_failures = 0
-    known = load_known()   # jobs already scored, to spot the same posting listed again
+    known = KnownJobs(load_known())   # jobs already scored, to spot the same posting listed again
+    cal = load_calibration()          # read once, not once per job   # jobs already scored, to spot the same posting listed again
     duplicates = 0
 
     for i, (_, row) in enumerate(todo.iterrows(), start=1):
@@ -227,7 +234,7 @@ async def main(
         if original:
             print(f"\n[DEDUPE] {job['title'][:50]} - {job['company'][:25]}: duplicate of {original['company'][:25]}")
             save_job(job, {"match_score": 0.0, "matched_skills": [], "gaps": duplicate_gap(original)},
-                     status="duplicate", model_score=0.0)
+            status="duplicate", model_score=0.0, duplicate_of=original["job_url"])
             duplicates += 1
             continue
 
@@ -238,7 +245,7 @@ async def main(
             # Final score = model score blended with the keyword score, tuned by rating.py
             model_score = score["match_score"]
             keyword = keyword_score(job["title"], job["description"])
-            score = {**score, "match_score": blend(model_score, keyword)}
+            score = {**score, "match_score": blend(model_score, keyword, cal)}
             consecutive_failures = 0
         except Exception as e:
             print(f"[SCORER] Failed on '{job['title']}': {e}")
@@ -280,7 +287,10 @@ async def main(
 
 
 if __name__ == "__main__":
-    # Everything below comes from config/settings.py; edit the values there.
+    parser = argparse.ArgumentParser(description="Scrape, filter, score and save jobs, then make documents.")
+    add_profile_arguments(parser)
+    apply_profile_arguments(parser.parse_args())
+    # Search terms, location and the other settings still come from config/settings.py (profiles: phase 2).
     asyncio.run(main(
         site_names=SITES,
         search_term=SEARCH_TERMS,

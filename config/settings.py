@@ -14,7 +14,7 @@ DEFAULT_PROFILE = "software"   # the profile used when you don't pass --profile
 
 # --------------------------------------------------------------------- files and folders
 RESUME_FILE = PROJECT_DIR / "data" / "resume.json"                 # your resume data (stays outside config/)
-DB_PATH = str(PROJECT_DIR / "data" / "jobs_db.sqlite")             # the jobs database
+DB_PATH = os.environ.get("JOBS_DB") or str(PROJECT_DIR / "data" / "jobs_db.sqlite")             # the jobs database
 CALIBRATION_FILE = PROJECT_DIR / "data" / "calibration.json"       # score tuning learned from your ratings
 APPLICATIONS_DIR = PROJECT_DIR / "data" /"applications"           # generated resumes and cover letters
 

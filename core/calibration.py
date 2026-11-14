@@ -19,13 +19,12 @@ import numpy as np
 import pandas as pd
 
 from documents.application_maker import matched_skills, missing_terms
-from config.settings import (
-    CALIBRATION_FILE, CALIBRATION_HISTORY_LIMIT, DEFAULT_MODEL_WEIGHT, FULL_TRUST_RATINGS, MIN_RATINGS,
-)
-from core.db import DB_PATH, get_db_connection
+from config.settings import CALIBRATION_FILE, DB_PATH, DEFAULT_MODEL_WEIGHT, FULL_TRUST_RATINGS, MIN_RATINGS
 from core.scorer import load_resume
-
-DEFAULT_CALIBRATION = {"fitted": False, "w_model": DEFAULT_MODEL_WEIGHT, "a": 1.0, "b": 0.0}
+from db.calibrations import (   # re-exported: tools/rating.py still imports these from here
+    DEFAULT_CALIBRATION, calibration_history, clear_calibration, load_calibration, recalc_rows,
+    save_calibration, update_final_scores,
+)
 
 
 # ------------------------------------------------------------------ keyword score
@@ -46,39 +45,6 @@ def keyword_score(title: str, description: str, resume: dict | None = None) -> f
 
 
 # ------------------------------------------------------------------- calibration
-
-
-def _read_file() -> dict:
-    """The calibration file as {"active": {...}, "history": [...]}; {} if missing or unreadable."""
-    try:
-        data = json.loads(Path(CALIBRATION_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    if "history" not in data and data.get("fitted"):  # a single fit saved by an earlier version
-        data = {"active": data, "history": [data]}
-    return data
-
-
-def load_calibration() -> dict:
-    """The calibration in use: your latest fit, or the default blend if you haven't rated yet."""
-    active = _read_file().get("active")
-    return active if active and active.get("fitted") else dict(DEFAULT_CALIBRATION)
-
-
-def calibration_history() -> list[dict]:
-    """Every fit so far, oldest first."""
-    return _read_file().get("history", [])
-
-
-def save_calibration(cal: dict) -> None:
-    """Add a new fit to the history and make it the active one. Earlier fits are kept."""
-    history = (calibration_history() + [cal])[-CALIBRATION_HISTORY_LIMIT:]
-    Path(CALIBRATION_FILE).write_text(json.dumps({"active": cal, "history": history}, indent=2), encoding="utf-8")
-
-
-def clear_calibration() -> None:
-    """Forget every fit (used by `rating.py --reset`)."""
-    Path(CALIBRATION_FILE).unlink(missing_ok=True)
 
 
 def blend(model_score: float, kw_score: float, cal: dict | None = None) -> float:
@@ -166,29 +132,16 @@ def fit_calibration(rows: list[tuple[float, float, float]], latest_batch_only: b
 
 
 def apply_calibration_to_db(db_path: str = DB_PATH, cal: dict | None = None) -> int:
-    """Recompute match_score for every scored job with the given calibration.
+    """Recompute match_score for the active profile's scored jobs with the given calibration.
 
-    Safe to run repeatedly: it always starts from the raw model_score, never from a
-    previously blended match_score. Filtered, failed and zero-scored jobs are untouched.
-    Returns how many jobs were updated.
+    Always starts from the raw model_score, so it is safe to run repeatedly. Filtered, failed and
+    zero-scored jobs are untouched. Returns how many jobs were updated.
     """
-    cal = cal or load_calibration()
+    cal = cal or load_calibration(db_path)
     resume = load_resume()
-    conn = get_db_connection(db_path)
-    try:
-        rows = conn.execute(
-            """SELECT id, title, description, COALESCE(model_score, match_score)
-               FROM jobs
-               WHERE status = 'scored' AND COALESCE(model_score, match_score) > 0
-                 AND gaps NOT LIKE '%auto-rejected%'"""
-        ).fetchall()
-        with conn:
-            for job_id, title, description, model in rows:
-                kw = keyword_score(title, description, resume)
-                conn.execute(
-                    "UPDATE jobs SET match_score = ?, model_score = ?, keyword_score = ? WHERE id = ?",
-                    (blend(model, kw, cal), model, kw, job_id),
-                )
-    finally:
-        conn.close()
-    return len(rows)
+    updates = []
+    for score_id, title, description, model in recalc_rows(db_path):
+        kw = keyword_score(title, description, resume)
+        updates.append((score_id, blend(model, kw, cal), kw))
+    update_final_scores(updates, db_path)
+    return len(updates)
