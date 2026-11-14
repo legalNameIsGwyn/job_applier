@@ -220,7 +220,7 @@ def worker_main(spec_path: str) -> int:
         aj.record_application(job["job_url"], result, apply_url=link, ats=ats)
         if result == "applied":
             try:
-                import core.tracking as tracking
+                import db.tracking as tracking
                 from documents.application_maker import job_folder
                 tracking.log_applied(job["job_url"], ats=ats, folder=job_folder(job).name)
             except Exception as e:                   # tracking must never break applying

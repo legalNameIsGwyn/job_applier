@@ -14,13 +14,13 @@ import argparse
 
 from config.settings import DB_PATH
 from db.calibrations import load_calibration
-from db.queries import get_jobs, load_known
+from db.queries import get_jobs
 from db.repo import FAILED_SCORE, get_scored_urls, init_db, save_job
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 from core.scraper import fill_missing_descriptions, scrape_multiple_terms
 from core.scorer import MODEL, load_resume, score_job
 from documents.application_maker import create_application, job_folder
-from tools.dedupe import KnownJobs, duplicate_gap
+from core.dedupe import duplicate_gap, load_known
 from core.filters import filter_reason
 from core.job_info import format_salary
 from core.calibration import blend, keyword_score
@@ -215,7 +215,7 @@ async def main(
     # Step 4: Score each job and save it immediately
     results = []
     consecutive_failures = 0
-    known = KnownJobs(load_known())   # jobs already scored, to spot the same posting listed again
+    known = load_known()   # jobs already scored, to spot the same posting listed againposting listed again
     cal = load_calibration()          # read once, not once per job   # jobs already scored, to spot the same posting listed again
     duplicates = 0
 

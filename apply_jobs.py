@@ -10,6 +10,7 @@
     python apply_jobs.py --include-opened       # offer jobs you opened before but didn't finish
     python apply_jobs.py --recheck-links        # forget "no link found" results and search again
     python apply_jobs.py --login                # log in to LinkedIn by hand, once (or --login indeed)
+    python apply_jobs.py --profile it_support   # use another profile's scores
 
 LinkedIn jobs: LinkedIn hides the employer's link from logged-out visitors, so each job is searched
 for on the company's public Greenhouse / Lever / Ashby job board (AUTO_FIND_LINKS in
@@ -24,9 +25,9 @@ Settings: config/apply_settings.py (which jobs, which sites)   config/answers.py
 """
 
 import argparse
-import sqlite3
 from pathlib import Path
 
+import db.tracking as tracking
 from applying.answering import Answerer
 from documents.application_maker import create_application, job_folder, name_fields, render_name
 from applying.ats import (CLICK_CHECKED, GENERIC_SITES, IMPLEMENTED, NO_LINK, NO_LINK_MARKERS, application_url, detect_ats,
@@ -37,8 +38,10 @@ from config.apply_settings import (
     SLOW_MO_MS, WORKDAY_AUTO_ADVANCE, WORKDAY_MAX_STEPS,
 )
 import config.apply_settings as _cfg
-from config.settings import COVER_LETTER_FILENAME, RESUME_FILENAME
-from core.db import DB_PATH, init_db, record_application, set_apply_url
+from config.settings import COVER_LETTER_FILENAME, DB_PATH, RESUME_FILENAME
+from db.queries import clear_missing_link_markers, get_candidates   # get_candidates: also imported by tools/summary.py
+from db.repo import init_db, record_application, set_apply_url
+from db.session import add_profile_arguments, apply_profile_arguments
 from applying.form_filler import fill_form, open_application
 from core.job_status import check_open, closed_in_text
 from core.scorer import load_resume
@@ -49,28 +52,10 @@ GENERIC_MAX_STEPS = getattr(_cfg, "GENERIC_MAX_STEPS", 10)
 BROWSER = getattr(_cfg, "BROWSER", "chromium")
 PARALLEL_JOBS = getattr(_cfg, "PARALLEL_JOBS", 3)
 
-JOB_COLUMNS = ("title", "company", "location", "job_url", "description", "match_score", "apply_url", "site")
-
 
 # --------------------------------------------------------------------------- choosing jobs
-
-
-def get_candidates(min_score, days, include_opened=False, url=None, db_path=DB_PATH) -> list[dict]:
-    """Scored jobs worth applying to that you haven't dealt with yet, best first."""
-    statuses = "(a.status IS NULL OR a.status = 'opened')" if include_opened else "a.status IS NULL"
-    sql = (f"SELECT {', '.join('j.' + c for c in JOB_COLUMNS)} FROM jobs j "
-           "LEFT JOIN applications a ON a.job_url = j.job_url WHERE j.job_url IS NOT NULL AND ")
-    if url:
-        sql, params = sql + "j.job_url = ?", [url]
-    else:
-        sql += (f"j.status = 'scored' AND j.match_score >= ? AND j.scraped_at >= datetime('now', ?) "
-                f"AND {statuses} ORDER BY j.match_score DESC")
-        params = [min_score, f"-{int(days)} days"]
-    conn = sqlite3.connect(db_path)
-    try:
-        return [dict(zip(JOB_COLUMNS, row)) for row in conn.execute(sql, params).fetchall()]
-    finally:
-        conn.close()
+# get_candidates (scored jobs worth applying to that you haven't dealt with yet, best first, for the
+# active profile) lives in db/queries.py.
 
 
 def target_for(job: dict) -> tuple[str | None, str | None, str | None]:
@@ -161,7 +146,7 @@ def resolve_via_linkedin(jobs: list[dict]) -> int:
         finally:
             context.close()
     found = closed = 0
-    
+
     for job in todo:
         outcome, url = results.get(job["job_url"], ("login", None))
         if outcome == "link" and url:
@@ -198,12 +183,7 @@ def login(site: str = "linkedin") -> None:
 
 def forget_missing_links(db_path: str = DB_PATH) -> int:
     """Clear every "none" marker so those jobs are searched for again."""
-    conn = sqlite3.connect(db_path)
-    try:
-        with conn:
-            return conn.execute("UPDATE jobs SET apply_url = NULL WHERE apply_url IN (?, ?)", NO_LINK_MARKERS).rowcount
-    finally:
-        conn.close()
+    return clear_missing_link_markers(NO_LINK_MARKERS, db_path)
 
 
 # ----------------------------------------------------------------------------- one job
@@ -296,12 +276,12 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
 
     if list_only or not ready:
         return
-    
+
     if parallel > 1 and len(ready[:limit]) > 1:
         from applying.worker import launch_all
         launch_all(ready[:limit], parallel, prepare=document_files)
         return
-    
+
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -325,7 +305,6 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
                 record_application(job["job_url"], status, apply_url=link, ats=ats)
                 if status == "applied":
                     try:
-                        import core.tracking as tracking
                         tracking.log_applied(job["job_url"], ats=ats, folder=job_folder(job).name)
                     except Exception as e:   # tracking must never break applying
                         print(f"  (couldn't start tracking: {e})")
@@ -350,7 +329,9 @@ if __name__ == "__main__":
                         help="open the saved browser on a sign-in page so you can log in by hand")
     parser.add_argument("--list", action="store_true", help="show what would be filled; open nothing")
     parser.add_argument("--parallel", type=int, default=PARALLEL_JOBS, help="applications open at once, each in its own window (1 = one at a time here)")
+    add_profile_arguments(parser)
     args = parser.parse_args()
+    apply_profile_arguments(args)
 
     if args.login:
         login(args.login)

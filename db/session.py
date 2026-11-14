@@ -4,6 +4,8 @@ SQLite ignores foreign keys unless they are switched on for every connection.
 The active profile is chosen once at startup (select_profile) and every db function reads it.
 """
 
+import os
+
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine, event, select
@@ -36,6 +38,13 @@ make_engine = get_engine   # the name db/migrate.py uses
 
 
 def create_tables(engine) -> None:
+    with engine.connect() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(jobs)")}
+    if cols and "is_duplicate" not in cols:
+        raise SystemExit(
+            "[DB] This database still has the OLD schema, so it was left alone. Point at the migrated file: "
+            '$env:JOBS_DB = "$PWD\\data\\jobs_db_new.sqlite"   (or finish the switch-over).'
+        )
     Base.metadata.create_all(engine)
 
 
@@ -60,12 +69,13 @@ def get_or_create_profile(session, name: str) -> Profile:
 
 
 def active_profile_name() -> str:
-    return _active_name or DEFAULT_PROFILE
+    return _active_name or os.environ.get("JOB_PROFILE") or DEFAULT_PROFILE
 
 
 def set_active_profile(name: str) -> None:
     global _active_name
     _active_name = name
+    os.environ["JOB_PROFILE"] = name   
 
 
 def current_profile_id(session) -> int:

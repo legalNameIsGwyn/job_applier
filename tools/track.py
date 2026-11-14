@@ -22,12 +22,15 @@
 
 <job> can be the job's number (the # column), its URL, or part of the company / title.
 Dates: 2026-11-09, 11/09, 11/09/2026, today, tomorrow, +7 (days from now).
+Put --profile NAME before the command if the application belongs to a profile other than the default:
+    python -m tools.track --profile it_support add acme
 """
 
 import argparse
 import sys
 
-import core.tracking as T
+import db.tracking as T
+from db.session import add_profile_arguments, apply_profile_arguments
 
 
 def _pick(ref: str) -> str:
@@ -35,7 +38,7 @@ def _pick(ref: str) -> str:
     if url:
         return url
     if not matches:
-        sys.exit(f"[TRACK] No job matches '{ref}'. Use the # from `python -m tools.show_jobs`/`track.py list`, a URL, or part of the company.")
+        sys.exit(f"[TRACK] No job matches '{ref}'. Use the # from `python -m tools.show_jobs` or `python -m tools.track list`, a URL, or part of the company.")
     print(f"[TRACK] '{ref}' matches {len(matches)} jobs. Be more specific (use the # number):")
     for r in matches:
         print(f"   #{r['id']:<5} {r['company']} - {r['title']}")
@@ -43,11 +46,7 @@ def _pick(ref: str) -> str:
 
 
 def _title(url: str) -> str:
-    conn = T.connect()
-    try:
-        r = conn.execute("SELECT id, title, company FROM jobs WHERE job_url = ?", (url,)).fetchone()
-    finally:
-        conn.close()
+    r = T.job_label(url)
     return f"#{r['id']} {r['company']} - {r['title']}" if r else url
 
 
@@ -73,18 +72,14 @@ def cmd_list(args):
     print(f"{'#':<6}{'stage':<10}{'updated':<11}{'company':<25}title")
     for r in rows:
         print(_row(r))
-    due = [r for r in T.due_follow_ups()]
+    due = T.due_follow_ups()
     if due and not args.stale:
         print(f"\n{len(due)} follow-up(s) due.")
 
 
 def cmd_show(args):
     url = _pick(args.job)
-    conn = T.connect()
-    try:
-        t = conn.execute("SELECT * FROM tracking WHERE job_url = ?", (url,)).fetchone()
-    finally:
-        conn.close()
+    t = T.get_tracking(url)
     print(_title(url))
     print(f"  {url}")
     if not t:
@@ -170,6 +165,7 @@ def cmd_sync(args):
 def main():
     p = argparse.ArgumentParser(description="Track applications after you apply.", epilog=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_profile_arguments(p)
     sub = p.add_subparsers(dest="cmd")
 
     s = sub.add_parser("list", help="show tracked applications")
@@ -229,7 +225,8 @@ def main():
 
     args = p.parse_args()
     if not args.cmd:
-        args = p.parse_args(["list"])
+        args = p.parse_args(sys.argv[1:] + ["list"])   # no command given: same as `list`, keeping any --profile
+    apply_profile_arguments(args)
     try:
         args.fn(args)
     except ValueError as e:
