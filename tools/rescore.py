@@ -3,12 +3,12 @@
 Use it after you change the prompt (config/prompts.py), your resume, the model, the filter
 rules or the keyword lists, to see how the jobs you already have would score now.
 
-    python rescore.py                  # every scored job, and any that failed before
-    python rescore.py --failed-only    # only jobs whose scoring failed
-    python rescore.py --include-filtered   # also re-check filtered jobs against the current rules
-    python rescore.py -n 20            # at most 20 jobs (oldest first)
-    python rescore.py --url <job url>  # one job
-    python rescore.py --yes            # don't ask for confirmation
+    python -m tools.rescore                  # every scored job, and any that failed before
+    python -m tools.rescore --failed-only    # only jobs whose scoring failed
+    python -m tools.rescore --include-filtered   # also re-check filtered jobs against the current rules
+    python -m tools.rescore -n 20            # at most 20 jobs (oldest first)
+    python -m tools.rescore --url <job url>  # one job
+    python -m tools.rescore --yes            # don't ask for confirmation
 
 Each job is saved as soon as it is scored, so Ctrl-C loses nothing. If the model fails on a
 job that already had a score, the old score is kept. Your hand ratings are never touched.

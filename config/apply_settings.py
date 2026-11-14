@@ -49,7 +49,7 @@ SLOW_MO_MS = 0             # slow every browser action by this many ms (try 100 
 PAGE_TIMEOUT_MS = 30000    # how long to wait for a page to load
 
 # -------------------------------------------------------------------- answers
-LEARNED_ANSWERS_FILE = PROJECT_DIR / "learned_answers.json"  # answers you typed in, remembered
+LEARNED_ANSWERS_FILE = PROJECT_DIR / "data" / "learned_answers.json"  # answers you typed in, remembered
 ASK_ABOUT_UNKNOWN = True   # True = stop and ask in the terminal when a question has no answer rule
 DRAFT_FREE_TEXT = True     # True = the local model drafts answers to long "why us?" style questions
 FREE_TEXT_MAX_WORDS = 120  # length limit for those drafts

@@ -1,8 +1,8 @@
 """Analytics: how your job search is going.
 
-    python stats.py                 # everything, all time
-    python stats.py --days 30       # only jobs scraped / applications made in the last 30 days
-    python stats.py --section funnel,score     # funnel | score | breakdown | trends  (comma separated)
+    python -m tools.stats                 # everything, all time
+    python -m tools.stats --days 30       # only jobs scraped / applications made in the last 30 days
+    python -m tools.stats --section funnel,score     # funnel | score | breakdown | trends  (comma separated)
 
 Funnel: scraped -> scored -> good matches -> applied -> heard back -> interview -> offer.
 "Heard back" means the employer answered: screening, interview, offer or a rejection. Ghosted and withdrawn don't count.
