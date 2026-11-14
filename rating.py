@@ -46,7 +46,6 @@ from core.job_info import (
 )
 
 from core.db import DB_PATH, init_db
-from core.job_info import salary_from_text, special_notes, summary_points
 from core.filters import min_years_required, my_years_experience, years_gap_note
 from dedupe import description_words, duplicate_gap, similarity, title_key
 

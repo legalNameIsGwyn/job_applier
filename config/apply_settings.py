@@ -39,7 +39,7 @@ WORKDAY_AUTO_ADVANCE = True
 WORKDAY_MAX_STEPS = 12
 # ---------------------------------------------------------------------- browser
 BROWSER = "chromium"   # "firefox" or "chromium"
-BROWSER_PROFILE_DIR = PROJECT_DIR / "browser_profile_firefox"   # keeps your logins between runs
+BROWSER_PROFILE_DIR = PROJECT_DIR / "browser_profile"   # keeps your logins between runs
 
 # ------------------------------------------------------------ several jobs at once
 PARALLEL_JOBS = 3   # applications open at once, each in its own terminal + browser window (1 = one at a time)

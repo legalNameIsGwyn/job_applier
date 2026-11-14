@@ -70,7 +70,7 @@ DOC_WINDOW_DAYS = 7       # only consider jobs scraped in the last N days
 MAX_PROJECTS = 3          # projects shown on the resume
 TAILOR_MAX_SKILLS = 12    # skills the model may move to the front (all skills are still listed)
 FONT = "Calibri"
-COVER_LETTER_GREETING = "Dear Hiring Team,"
+COVER_LETTER_GREETING = "Good day,"
 COVER_LETTER_SIGN_OFF = "Sincerely,"
 
 # ------------------------------------------------------------------------------ file names
