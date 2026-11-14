@@ -1,4 +1,4 @@
-"""Show the top or bottom N scored jobs from the database.
+"""Show the top or bottom N scored jobs for a profile.
 
 Usage (from the project folder):
     python -m tools.show_jobs                  # top 10
@@ -6,88 +6,25 @@ Usage (from the project folder):
     python -m tools.show_jobs -n 20 --min-score 6 --days 3
     python -m tools.show_jobs --failed         # jobs whose scoring failed
     python -m tools.show_jobs -n 3 --full      # also print the job description
+    python -m tools.show_jobs --profile it_support
 
 Or from code:
     from tools.show_jobs import show_jobs
     show_jobs(10, "top")
+
+The query itself (get_jobs) lives in db/queries.py; this file only prints.
 """
 
 import argparse
-import json
-import sqlite3
 import textwrap
 
 from config.settings import SHOW_DEFAULT_COUNT
-from core.db import DB_PATH
-
-
-def get_jobs(
-    n: int = 10,
-    order: str = "top",
-    min_score: float | None = None,
-    max_score: float | None = None,
-    days: int | None = None,
-    include_zero: bool = True,
-    failed_only: bool = False,
-    db_path: str = DB_PATH,
-) -> list[dict]:
-    """Return the top or bottom N jobs as dicts.
-
-    order:        "top" (highest score first) or "bottom" (lowest first)
-    min_score / max_score: only jobs with a score in this range
-    days:         only jobs scraped in the last N days
-    include_zero: set False to hide the auto-rejected jobs (clearance / citizenship)
-    failed_only:  show only jobs whose scoring failed (stored as -1)
-    """
-    if order not in ("top", "bottom"):
-        raise ValueError("order must be 'top' or 'bottom'")
-
-    where, params = [], []
-    if failed_only:
-        where.append("match_score < 0")
-    else:
-        where.append("match_score >= 0")  # failed jobs are hidden unless asked for
-        if not include_zero:
-            where.append("match_score > 0")
-    if min_score is not None:
-        where.append("match_score >= ?")
-        params.append(min_score)
-    if max_score is not None:
-        where.append("match_score <= ?")
-        params.append(max_score)
-    if days is not None:
-        where.append("scraped_at >= datetime('now', ?)")
-        params.append(f"-{int(days)} days")
-
-    direction = "DESC" if order == "top" else "ASC"
-    sql = f"""
-        SELECT title, company, location, job_url, match_score,
-               matched_skills, gaps, description, scraped_at
-        FROM jobs
-        WHERE {' AND '.join(where)}
-        ORDER BY match_score {direction}, scraped_at DESC
-        LIMIT ?
-    """
-    params.append(int(n))
-
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        rows = [dict(r) for r in conn.execute(sql, params)]
-    finally:
-        conn.close()
-
-    for r in rows:
-        for key in ("matched_skills", "gaps"):
-            try:
-                r[key] = json.loads(r[key])
-            except (TypeError, ValueError):
-                r[key] = [r[key]] if r[key] else []
-    return rows
+from db.queries import get_jobs
+from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 
 
 def show_jobs(n: int = 10, order: str = "top", full: bool = False, **filters) -> list[dict]:
-    """Print the top or bottom N jobs, and return them. See get_jobs for filters."""
+    """Print the top or bottom N jobs, and return them. See db.queries.get_jobs for the filters."""
     jobs = get_jobs(n, order, **filters)
     label = "Top" if order == "top" else "Bottom"
 
@@ -95,9 +32,10 @@ def show_jobs(n: int = 10, order: str = "top", full: bool = False, **filters) ->
         print("No jobs match those filters.")
         return jobs
 
-    print(f"\n{label} {len(jobs)} jobs\n" + "=" * 60)
+    print(f"\n{label} {len(jobs)} jobs (profile: {active_profile_name()})\n" + "=" * 60)
     for i, j in enumerate(jobs, start=1):
-        print(f"\n{i}. [{j['match_score']:g}/10] {j['title']} - {j['company']}")
+        compat = f"  compat {j['compat_pct']:g}%" if j.get("compat_pct") is not None else ""
+        print(f"\n{i}. #{j['id']} [{j['match_score']:g}/10]{compat} {j['title']} - {j['company']}")
         print(f"   {j['location']}  (scraped {j['scraped_at']})")
         print(f"   {j['job_url']}")
         if j["matched_skills"]:
@@ -117,11 +55,13 @@ if __name__ == "__main__":
     p.add_argument("--bottom", action="store_true", help="show the lowest scores instead of the highest")
     p.add_argument("--min-score", type=float, help="only jobs scoring at least this")
     p.add_argument("--max-score", type=float, help="only jobs scoring at most this")
-    p.add_argument("--days", type=int, help="only jobs scraped in the last N days")
+    p.add_argument("--days", type=int, help="only jobs scored in the last N days")
     p.add_argument("--hide-zero", action="store_true", help="hide auto-rejected (score 0) jobs")
     p.add_argument("--failed", action="store_true", help="show only jobs whose scoring failed")
     p.add_argument("--full", action="store_true", help="include the job description")
+    add_profile_arguments(p)
     args = p.parse_args()
+    apply_profile_arguments(args)
 
     show_jobs(
         args.n,

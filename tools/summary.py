@@ -4,21 +4,25 @@
     python -m tools.summary --days 7         # last week
     python -m tools.summary --html           # also save reports\\summary_<date>.html and open it
     python -m tools.summary --top 15 --min-score 6
+    python -m tools.summary --profile it_support
 
-main.py prints this at the end of every run (SUMMARY_AFTER_RUN in config/settings.py).
-Nothing here scrapes, scores or opens a browser; it only reads the database.
+Scores, ratings and "ready to apply" are for the active profile; applications and follow-ups cover
+everything you have tracked. main.py prints this at the end of every run (SUMMARY_AFTER_RUN in
+config/settings.py). Nothing here scrapes, scores or opens a browser; it only reads the database.
 """
 
 import argparse
 import html
-import json
-import sqlite3
 import webbrowser
 from datetime import datetime
 from pathlib import Path
 
 import config.settings as _settings
-from core.db import DB_PATH, init_db
+import db.tracking as tracking
+from config.settings import DB_PATH
+from db import ratings as R
+from db.queries import application_counts, get_candidates, get_jobs, status_counts, unfinished_applications
+from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 
 SUMMARY_DAYS = getattr(_settings, "SUMMARY_DAYS", 1)            # how far back "new" reaches
 SUMMARY_TOP = getattr(_settings, "SUMMARY_TOP", 10)             # best matches listed
@@ -26,43 +30,21 @@ SUMMARY_MIN_SCORE = getattr(_settings, "SUMMARY_MIN_SCORE", 6)  # a "match" scor
 SUMMARY_DIR = Path(getattr(_settings, "SUMMARY_DIR", Path(DB_PATH).resolve().parent / "reports"))
 
 
-def _query(conn, sql, params=()):
-    return conn.execute(sql, params).fetchall()
-
-
-def gather(days: int = SUMMARY_DAYS, top: int = SUMMARY_TOP, min_score: float = SUMMARY_MIN_SCORE,
+def gather(days: float = SUMMARY_DAYS, top: int = SUMMARY_TOP, min_score: float = SUMMARY_MIN_SCORE,
            db_path: str = DB_PATH) -> dict:
     """Everything the summary shows, as plain data."""
-    window = f"-{float(days)} days"
-    conn = sqlite3.connect(db_path)
-    try:
-        data = {"days": days, "min_score": min_score, "generated": datetime.now().strftime("%Y-%m-%d %H:%M")}
-        data["new_by_status"] = dict(_query(
-            conn, "SELECT status, COUNT(*) FROM jobs WHERE scraped_at >= datetime('now', ?) GROUP BY status", (window,)))
-        data["total_by_status"] = dict(_query(conn, "SELECT status, COUNT(*) FROM jobs GROUP BY status"))
-        cols = "title, company, location, match_score, salary, job_url, apply_url"
-        data["top_new"] = [dict(zip(cols.split(", "), r)) for r in _query(
-            conn, f"SELECT {cols} FROM jobs WHERE status = 'scored' AND match_score >= ? "
-                  "AND scraped_at >= datetime('now', ?) ORDER BY match_score DESC LIMIT ?", (min_score, window, top))]
-        data["failed"] = _query(conn, "SELECT COUNT(*) FROM jobs WHERE status = 'scoring_failed'")[0][0]
-        data["applications"] = dict(_query(conn, "SELECT status, COUNT(*) FROM applications GROUP BY status"))
-        data["unfinished"] = [dict(zip(("title", "company", "job_url"), r)) for r in _query(
-            conn, "SELECT j.title, j.company, j.job_url FROM applications a JOIN jobs j ON j.job_url = a.job_url "
-                  "WHERE a.status = 'opened' ORDER BY a.updated_at DESC LIMIT 10")]
-        data["ratings"] = _query(
-            conn, "SELECT COUNT(*) FROM ratings r JOIN jobs j ON j.job_url = r.job_url "
-                  "WHERE r.rating IS NOT NULL AND j.status = 'scored' "
-                  "AND COALESCE(j.model_score, j.match_score) > 0")[0][0]
-        data["unrated_scored"] = _query(
-            conn, "SELECT COUNT(*) FROM jobs j LEFT JOIN ratings r ON r.job_url = j.job_url "
-                  "WHERE r.job_url IS NULL AND j.status = 'scored' "
-                  "AND COALESCE(j.model_score, j.match_score) > 0 "
-                  "AND j.gaps NOT LIKE '%auto-rejected%' AND TRIM(j.description) <> ''")[0][0]
-    finally:
-        conn.close()
-    try:   # application tracking (optional: needs tracking.py)
-        import core.tracking as tracking
-        data["follow_ups"] = [dict(r) for r in tracking.due_follow_ups(db_path)]
+    data = {"days": days, "min_score": min_score, "profile": active_profile_name(),
+            "generated": datetime.now().strftime("%Y-%m-%d %H:%M")}
+    data["new_by_status"] = status_counts(days, db_path)
+    data["total_by_status"] = status_counts(None, db_path)
+    data["top_new"] = get_jobs(top, "top", min_score=min_score, days=days, include_zero=False, db_path=db_path)
+    data["failed"] = data["total_by_status"].get("scoring_failed", 0)
+    data["applications"] = application_counts(db_path)
+    data["unfinished"] = unfinished_applications(10, db_path)
+    data["ratings"] = R.usable_rating_count(db_path)
+    data["unrated_scored"] = R.unrated_count(db_path)
+    try:   # application tracking
+        data["follow_ups"] = tracking.due_follow_ups(db_path)
         data["quiet"] = len(tracking.get_tracked(stale_days=14, db_path=db_path))
     except Exception:
         data["follow_ups"], data["quiet"] = [], 0
@@ -73,7 +55,7 @@ def gather(days: int = SUMMARY_DAYS, top: int = SUMMARY_TOP, min_score: float = 
 def _apply_readiness(min_score, days, db_path):
     """Which jobs apply_jobs.py could fill right now, and why the others can't be (no network, no browser)."""
     try:
-        from apply_jobs import APPLY_MIN_SCORE, APPLY_WINDOW_DAYS, get_candidates, target_for
+        from apply_jobs import APPLY_MIN_SCORE, APPLY_WINDOW_DAYS, target_for
     except Exception:
         return [], {}
     ready, blocked = [], {}
@@ -100,7 +82,7 @@ def _job_line(job: dict) -> str:
 def render_text(d: dict) -> str:
     new, total = d["new_by_status"], d["total_by_status"]
     when = "the last 24 hours" if d["days"] == 1 else f"the last {d['days']:g} days"
-    lines = ["=" * 60, f"SUMMARY  ({d['generated']})", "=" * 60,
+    lines = ["=" * 60, f"SUMMARY  ({d['generated']})  profile: {d['profile']}", "=" * 60,
              f"New in {when}: {sum(new.values())} job(s)  "
              f"(scored {new.get('scored', 0)}, filtered {new.get('filtered', 0)}, "
              f"duplicates {new.get('duplicate', 0)}, failed {new.get('scoring_failed', 0)})",
@@ -183,7 +165,7 @@ table{{border-collapse:collapse;width:100%}}td{{padding:.45rem .5rem;border-bott
 td.s{{font-weight:700;width:3rem}}span{{color:#666;font-size:.9em}}.none{{color:#888}}code{{background:#f1f1f1;padding:.1rem .3rem;border-radius:3px}}
 .stats span{{display:inline-block;margin-right:1.2rem;color:#1c1c1c}}a{{color:#0b57d0}}
 @media(prefers-color-scheme:dark){{body{{background:#161616;color:#e8e8e8}}td{{border-color:#333}}code{{background:#2a2a2a}}a{{color:#8ab4f8}}span,h2{{color:#aaa}}.stats span{{color:#e8e8e8}}}}
-</style></head><body><h1>Job summary</h1><p>{e(d['generated'])}</p>
+</style></head><body><h1>Job summary</h1><p>{e(d['generated'])} &middot; profile: {e(d['profile'])}</p>
 <h2>New in the last {when}</h2><p class=stats><span><b>{sum(new.values())}</b> new</span><span><b>{new.get('scored', 0)}</b> scored</span>
 <span><b>{new.get('filtered', 0)}</b> filtered</span><span><b>{new.get('duplicate', 0)}</b> duplicates</span><span><b>{new.get('scoring_failed', 0)}</b> failed</span></p>
 <p>Database total: {sum(total.values())} jobs, {total.get('scored', 0)} scored.</p>
@@ -216,6 +198,7 @@ if __name__ == "__main__":
     parser.add_argument("--top", type=int, default=SUMMARY_TOP)
     parser.add_argument("--min-score", type=float, default=SUMMARY_MIN_SCORE)
     parser.add_argument("--html", action="store_true", help="also save an HTML report and open it")
+    add_profile_arguments(parser)
     args = parser.parse_args()
-    init_db()
+    apply_profile_arguments(args)
     print_summary(args.days, args.top, args.min_score, html_report=args.html, open_it=args.html)

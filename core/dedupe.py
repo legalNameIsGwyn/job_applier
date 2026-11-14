@@ -4,18 +4,20 @@ Two jobs are duplicates when their titles match and EITHER
   - they have the same company and the same location, or
   - their descriptions are nearly identical (90%+ of the same words) and the location agrees.
 
-    python -m tools.dedupe --dry-run       # show what would be marked, change nothing
-    python -m tools.dedupe                 # mark duplicates already in your database
+    python -m core.dedupe --dry-run       # show what would be marked, change nothing
+    python -m core.dedupe                 # mark duplicates already in your database
 
 main.py also checks every new job as it goes. A duplicate is saved with status "duplicate" and score 0
 (its model and keyword scores are kept), so it never shows up in ratings, rankings or applications.
 """
 
 import argparse
-import json
 import re
 
-from core.db import DB_PATH, get_db_connection, init_db
+from config.settings import DB_PATH
+from db.queries import dedupe_candidates, load_known as _load_known, mark_duplicates as _mark_duplicates
+from db.repo import init_db
+from db.session import add_profile_arguments, apply_profile_arguments
 
 DESCRIPTION_SIMILARITY = 0.9
 SHORTER_OVERLAP = 0.75       # same title + same city: duplicate if 75% of the SHORTER posting's words are in the other
@@ -91,62 +93,41 @@ class KnownJobs:
 
 
 def load_known(db_path: str = DB_PATH) -> KnownJobs:
-    """Every job already scored in the database."""
-    conn = get_db_connection(db_path)
-    try:
-        rows = conn.execute(
-            "SELECT job_url, title, company, location, description FROM jobs WHERE status = 'scored'"
-        ).fetchall()
-    finally:
-        conn.close()
-    return KnownJobs({"job_url": r[0], "title": r[1], "company": r[2], "location": r[3], "description": r[4]} for r in rows)
+    """Every job already scored (by any profile) that isn't itself a duplicate."""
+    return KnownJobs(_load_known(db_path))
 
 
 def duplicate_gap(original: dict) -> list[str]:
     return [f"Duplicate of: {original['title']} - {original['company']}"]
 
-
 def mark_duplicates(db_path: str = DB_PATH, dry_run: bool = False) -> list[tuple[dict, dict]]:
     """Mark duplicates among the jobs already scored. Returns [(duplicate, kept)].
 
     Of each set of duplicates the best is kept: one you've started applying to, then one with an
-    employer link, then the highest score, then the oldest.
+    employer link, then the highest score, then the oldest. Scores are not changed.
     """
     init_db(db_path)
-    conn = get_db_connection(db_path)
-    try:
-        rows = conn.execute(
-            """SELECT j.id, j.job_url, j.title, j.company, j.location, j.description, j.match_score,
-                      j.apply_url, a.status
-               FROM jobs j LEFT JOIN applications a ON a.job_url = j.job_url
-               WHERE j.status = 'scored'"""
-        ).fetchall()
-        jobs = [dict(zip(("id", "job_url", "title", "company", "location", "description", "match_score",
-                          "apply_url", "application"), r)) for r in rows]
-        jobs.sort(key=lambda j: (j["application"] is None,
-                                 not (j["apply_url"] and not j["apply_url"].startswith("none")),
-                                 -(j["match_score"] or 0), j["id"]))
-        known, found = KnownJobs(), []
-        for job in jobs:
-            original = known.duplicate_of(job)
-            if original:
-                found.append((job, original))
-            else:
-                known.add(job)
-        if found and not dry_run:
-            with conn:
-                for job, original in found:
-                    conn.execute("UPDATE jobs SET status = 'duplicate', match_score = 0, gaps = ? WHERE id = ?",
-                                 (json.dumps(duplicate_gap(original)), job["id"]))
-        return found
-    finally:
-        conn.close()
-
+    jobs = dedupe_candidates(db_path)
+    jobs.sort(key=lambda j: (j["application"] is None,
+                             not (j["apply_url"] and not j["apply_url"].startswith("none")),
+                             -(j["match_score"] or 0), j["id"]))
+    known, found = KnownJobs(), []
+    for job in jobs:
+        original = known.duplicate_of(job)
+        if original:
+            found.append((job, original))
+        else:
+            known.add(job)
+    if found and not dry_run:
+        _mark_duplicates([(job["id"], original["id"]) for job, original in found], db_path)
+    return found
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Find and mark duplicate jobs already in the database.")
     parser.add_argument("--dry-run", action="store_true", help="show the duplicates without changing anything")
+    add_profile_arguments(parser)
     args = parser.parse_args()
+    apply_profile_arguments(args)
     dupes = mark_duplicates(dry_run=args.dry_run)
     for dup, kept in dupes:
         print(f"duplicate: {dup['title'][:45]} - {dup['company'][:25]}  ({dup['location']})\n"

@@ -6,10 +6,11 @@ else (employers, titles, dates, education, bullet text) is copied verbatim from
 resume.json, so the resume cannot contain invented experience.
 
 Usage (from the project folder):
-    python application_maker.py --top 5                  # best 5 jobs scoring >= 6
-    python application_maker.py --top 10 --min-score 7 --days 3
-    python application_maker.py --url https://www.linkedin.com/jobs/view/123...
-    python application_maker.py --top 5 --force          # regenerate existing ones
+    python -m documents.application_maker --top 5                  # best 5 jobs scoring >= 6
+    python -m documents.application_maker --top 10 --min-score 7 --days 3
+    python -m documents.application_maker --url https://www.linkedin.com/jobs/view/123...
+    python -m documents.application_maker --top 5 --force          # regenerate existing ones
+    python -m documents.application_maker --top 5 --profile it_support
 
 Output goes to the applications folder (APPLICATIONS_DIR in config/settings.py), one
 subfolder per job: a resume, a cover letter and notes.txt (job link plus anything to
@@ -22,7 +23,6 @@ import hashlib
 import json
 import re
 import shutil
-import sqlite3
 from datetime import date
 from pathlib import Path
 
@@ -43,10 +43,10 @@ from config.writing_style import (
     LETTER_AUTHORIZATION_RULE, LETTER_AVAILABILITY_CLAUSE, LETTER_KEYWORD_RULE, LETTER_PROMPT, LETTER_STRUCTURE,
     LETTER_WARN_WORDS, LETTER_YEARS_RULE, SLOP_PATTERNS, STYLE_RULES, SUMMARY_YEARS_RULE, TAILOR_PROMPT, TRUTH_RULES,
 )
-from core.db import DB_PATH
 from core.filters import years_shortfall
 from core.scorer import MODEL, client, extract_json, load_resume
-from tools.show_jobs import get_jobs
+from db.queries import get_job_by_url, get_jobs
+from db.session import add_profile_arguments, apply_profile_arguments
 
 OUTPUT_DIR = Path(APPLICATIONS_DIR)
 
@@ -592,27 +592,16 @@ def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = Fal
     return folder
 
 
-def get_job_by_url(url: str, db_path: str = DB_PATH) -> dict | None:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute(
-            "SELECT title, company, location, job_url, description, match_score FROM jobs WHERE job_url = ?",
-            (url,),
-        ).fetchone()
-    finally:
-        conn.close()
-    return dict(row) if row else None
-
-
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Generate tailored resumes and cover letters.")
     p.add_argument("--top", type=int, help="generate for the top N scored jobs")
     p.add_argument("--url", help="generate for one job already in the database")
     p.add_argument("--min-score", type=float, default=6, help="with --top: minimum score (default 6)")
-    p.add_argument("--days", type=int, help="with --top: only jobs scraped in the last N days")
+    p.add_argument("--days", type=int, help="with --top: only jobs scored in the last N days")
     p.add_argument("--force", action="store_true", help="regenerate even if the folder exists")
+    add_profile_arguments(p)
     args = p.parse_args()
+    apply_profile_arguments(args)
 
     if args.url:
         job = get_job_by_url(args.url)

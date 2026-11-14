@@ -50,7 +50,7 @@ from core.job_info import (
 )
 
 from core.filters import min_years_required, my_years_experience, years_gap_note
-from tools.dedupe import description_words, duplicate_gap, similarity, title_key   # moves to core/dedupe.py later
+from core.dedupe import description_words, duplicate_gap, similarity, title_key   # moves to core/dedupe.py later
 
 SIMILAR_HINT = 0.5  # show "possibly the same posting" at this much word overlap (same title only)
 

@@ -3,7 +3,10 @@
     python -m tools.stats                 # everything, all time
     python -m tools.stats --days 30       # only jobs scraped / applications made in the last 30 days
     python -m tools.stats --section funnel,score     # funnel | score | breakdown | trends  (comma separated)
+    python -m tools.stats --profile it_support
 
+The job counts (scraped, scored, good matches) are for the active profile. Applications and what
+happened to them cover everything you have tracked, whichever profile found the job.
 Funnel: scraped -> scored -> good matches -> applied -> heard back -> interview -> offer.
 "Heard back" means the employer answered: screening, interview, offer or a rejection. Ghosted and withdrawn don't count.
 Small numbers are noisy: with only a handful of applications, treat percentages as hints, not facts.
@@ -14,8 +17,11 @@ import statistics
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
-import core.tracking as T
+import db.tracking as T
 from config import settings as _s
+from config.settings import DB_PATH
+from db.queries import stats_jobs
+from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 
 GOOD_SCORE = getattr(_s, "DOC_MIN_SCORE", 6)
 MIN_SAMPLE = 5   # below this many applications, say so
@@ -32,23 +38,15 @@ def _since(days):
     return (date.today() - timedelta(days=days)).isoformat() if days else None
 
 
-def gather(days: int | None = None, db_path=T.DB_PATH) -> dict:
+def gather(days: int | None = None, db_path=DB_PATH) -> dict:
     """All the numbers, as plain data (so tests and other scripts can use them)."""
     T.sync_applied(db_path)
     since = _since(days)
-    conn = T.connect(db_path)
-    try:
-        jobs = [dict(r) for r in conn.execute(
-            "SELECT id, site, title, company, match_score, status, scraped_at, job_url FROM jobs "
-            + ("WHERE date(scraped_at) >= ?" if since else ""), (since,) if since else ())]
-        tr = [dict(r) for r in conn.execute(
-            """SELECT t.*, j.title, j.company, j.match_score FROM tracking t LEFT JOIN jobs j ON j.job_url = t.job_url
-               """ + ("WHERE t.applied_on >= ?" if since else ""), (since,) if since else ())]
-        events = defaultdict(dict)   # job_url -> stage -> first date
-        for e in conn.execute("SELECT job_url, stage, on_date FROM tracking_events ORDER BY on_date, id"):
-            events[e["job_url"]].setdefault(e["stage"], e["on_date"])
-    finally:
-        conn.close()
+    jobs = stats_jobs(since, db_path)
+    tr = T.get_tracked(since=since, db_path=db_path)
+    events = defaultdict(dict)   # job_url -> stage -> first date
+    for e in T.all_events(db_path):
+        events[e["job_url"]].setdefault(e["stage"], e["on_date"])
     for t in tr:
         reached = events.get(t["job_url"], {})
         t["reached"] = set(reached) | {t["stage"]}
@@ -194,9 +192,10 @@ def trends(data) -> list[str]:
 SECTIONS = {"funnel": funnel, "score": score_vs_outcome, "breakdown": breakdown, "trends": trends}
 
 
-def report(days=None, sections=None, db_path=T.DB_PATH) -> str:
+def report(days=None, sections=None, db_path=DB_PATH) -> str:
     data = gather(days, db_path)
-    title = f"JOB SEARCH STATS ({'last ' + str(days) + ' days' if days else 'all time'})"
+    title = (f"JOB SEARCH STATS ({'last ' + str(days) + ' days' if days else 'all time'}; "
+             f"job counts for profile '{active_profile_name()}', applications from all profiles)")
     blocks = [[title]] + [SECTIONS[s](data) for s in (sections or SECTIONS)]
     return "\n\n".join("\n".join(b) for b in blocks)
 
@@ -206,7 +205,9 @@ if __name__ == "__main__":
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--days", type=int, help="only the last N days")
     ap.add_argument("--section", help="comma separated: " + ", ".join(SECTIONS))
+    add_profile_arguments(ap)
     a = ap.parse_args()
+    apply_profile_arguments(a)
     chosen = [s.strip() for s in a.section.split(",")] if a.section else None
     if chosen and any(s not in SECTIONS for s in chosen):
         ap.error("section must be among: " + ", ".join(SECTIONS))
