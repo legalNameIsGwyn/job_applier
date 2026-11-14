@@ -46,7 +46,7 @@ from config.writing_style import (
 from core.db import DB_PATH
 from core.filters import years_shortfall
 from core.scorer import MODEL, client, extract_json, load_resume
-from show_jobs import get_jobs
+from tools.show_jobs import get_jobs
 
 OUTPUT_DIR = Path(APPLICATIONS_DIR)
 

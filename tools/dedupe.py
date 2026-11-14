@@ -4,8 +4,8 @@ Two jobs are duplicates when their titles match and EITHER
   - they have the same company and the same location, or
   - their descriptions are nearly identical (90%+ of the same words) and the location agrees.
 
-    python dedupe.py --dry-run       # show what would be marked, change nothing
-    python dedupe.py                 # mark duplicates already in your database
+    python -m tools.dedupe --dry-run       # show what would be marked, change nothing
+    python -m tools.dedupe                 # mark duplicates already in your database
 
 main.py also checks every new job as it goes. A duplicate is saved with status "duplicate" and score 0
 (its model and keyword scores are kept), so it never shows up in ratings, rankings or applications.

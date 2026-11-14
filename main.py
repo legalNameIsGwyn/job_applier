@@ -14,8 +14,8 @@ from core.db import DB_PATH, FAILED_SCORE, get_scored_urls, init_db, save_job
 from core.scraper import fill_missing_descriptions, scrape_multiple_terms
 from core.scorer import MODEL, load_resume, score_job
 from documents.application_maker import create_application, job_folder
-from show_jobs import get_jobs
-from dedupe import duplicate_gap, load_known
+from tools.show_jobs import get_jobs
+from tools.dedupe import duplicate_gap, load_known
 from core.filters import filter_reason
 from core.job_info import format_salary
 from core.calibration import blend, keyword_score
@@ -31,7 +31,7 @@ def show_summary() -> None:
     if not getattr(_settings, "SUMMARY_AFTER_RUN", True):
         return
     try:
-        from summary import print_summary
+        from tools.summary import print_summary
         print_summary()
     except Exception as e:
         print(f"[SUMMARY] Skipped: {e}")

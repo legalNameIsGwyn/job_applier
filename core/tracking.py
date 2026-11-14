@@ -124,7 +124,7 @@ def set_stage(job_url: str, stage: str, on_date: str | None = None, note: str | 
     try:
         with conn:
             if not conn.execute("SELECT 1 FROM tracking WHERE job_url = ?", (job_url,)).fetchone():
-                raise KeyError("that job isn't tracked yet (use: python track.py add <job>)")
+                raise KeyError("that job isn't tracked yet (use: python -m tools.track add <job>)")
             conn.execute("UPDATE tracking SET stage = ?, updated_on = ? WHERE job_url = ?", (stage, on_date, job_url))
             _event(conn, job_url, stage, on_date, note)
     finally:

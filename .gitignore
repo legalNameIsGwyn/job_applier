@@ -1,9 +1,6 @@
 # Personal data and logins: never commit these
 data/
-applications/
 browser_profile*/
-learned_answers.json
-reports/
 jobs.csv
 *.sqlite
 archive/

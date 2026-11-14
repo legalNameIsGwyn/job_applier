@@ -1,14 +1,14 @@
 """Hand-rate a batch of jobs to check, and tune, how the scores are computed.
 
 From the project folder:
-    python rating.py                  # rate 20 jobs you haven't rated yet
-    python rating.py -n 10            # a smaller batch
-    python rating.py --latest-only    # tune using ONLY this batch's ratings
-    python rating.py --report         # show the current calibration, no rating
-    python rating.py --reset          # start over: delete all ratings and fits (asks first)
+    python -m tools.rating                  # rate 20 jobs you haven't rated yet
+    python -m tools.rating -n 10            # a smaller batch
+    python -m tools.rating --latest-only    # tune using ONLY this batch's ratings
+    python -m tools.rating --report         # show the current calibration, no rating
+    python -m tools.rating --reset          # start over: delete all ratings and fits (asks first)
 
 Or from code:
-    from rating import rate_jobs
+    from tools.rating import rate_jobs
     rate_jobs()                       # 20 new jobs
 
 Every call:
@@ -47,7 +47,7 @@ from core.job_info import (
 
 from core.db import DB_PATH, init_db
 from core.filters import min_years_required, my_years_experience, years_gap_note
-from dedupe import description_words, duplicate_gap, similarity, title_key
+from tools.dedupe import description_words, duplicate_gap, similarity, title_key
 
 SIMILAR_HINT = 0.5  # show "possibly the same posting" at this much word overlap (same title only)
 
@@ -602,7 +602,7 @@ def show_calibration(show=print) -> None:
     cal = load_calibration()
     if not cal.get("fitted"):
         show(f"No calibration fitted yet (using the default 70% model / 30% keywords). "
-             f"Rate at least {MIN_RATINGS} jobs with:  python rating.py")
+             f"Rate at least {MIN_RATINGS} jobs with:  python -m tools.rating")
         return
     show(f"Calibration from {cal['fitted_at']} ({cal['n']} ratings"
          f"{', latest batch only' if cal['latest_batch_only'] else ''}), stored in {CALIBRATION_FILE.name}")

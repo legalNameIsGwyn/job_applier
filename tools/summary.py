@@ -1,9 +1,9 @@
 """A summary of what the pipeline found, and what is waiting for you.
 
-    python summary.py                  # last 24 hours, printed in the terminal
-    python summary.py --days 7         # last week
-    python summary.py --html           # also save reports\\summary_<date>.html and open it
-    python summary.py --top 15 --min-score 6
+    python -m tools.summary                  # last 24 hours, printed in the terminal
+    python -m tools.summary --days 7         # last week
+    python -m tools.summary --html           # also save reports\\summary_<date>.html and open it
+    python -m tools.summary --top 15 --min-score 6
 
 main.py prints this at the end of every run (SUMMARY_AFTER_RUN in config/settings.py).
 Nothing here scrapes, scores or opens a browser; it only reads the database.
@@ -121,18 +121,18 @@ def render_text(d: dict) -> str:
 
     todo = []
     if d["failed"]:
-        todo.append(f"{d['failed']} job(s) failed scoring: python rescore.py --failed-only")
+        todo.append(f"{d['failed']} job(s) failed scoring: python -m tools.rescore --failed-only")
     if d["unfinished"]:
         todo.append(f"{len(d['unfinished'])} application(s) opened but not finished: "
                     "python apply_jobs.py --include-opened")
     for f in d.get("follow_ups", []):
-        todo.append(f"follow up with {f['company']} ({f['title']}), due {f['follow_up_on']}: python track.py show {f['job_id']}")
+        todo.append(f"follow up with {f['company']} ({f['title']}), due {f['follow_up_on']}: python -m tools.track show {f['job_id']}")
     if d.get("quiet"):
-        todo.append(f"{d['quiet']} application(s) with no answer for 14+ days: python track.py list --stale 14")
+        todo.append(f"{d['quiet']} application(s) with no answer for 14+ days: python -m tools.track list --stale 14")
     if d["ratings"] < 10:
-        todo.append(f"only {d['ratings']} hand rating(s): python rating.py (10+ tunes the scores, 50+ is steadier)")
+        todo.append(f"only {d['ratings']} hand rating(s): python -m tools.rating (10+ tunes the scores, 50+ is steadier)")
     elif d["unrated_scored"]:
-        todo.append(f"{d['unrated_scored']} scored job(s) not rated yet: python rating.py")
+        todo.append(f"{d['unrated_scored']} scored job(s) not rated yet: python -m tools.rating")
     lines += ["", "NEEDS YOU"] + ([f"  - {t}" for t in todo] or ["  nothing"])
 
     apps = d["applications"]
@@ -167,13 +167,13 @@ def render_html(d: dict) -> str:
     blocked = "".join(f"<li><b>{len(j)}</b> {e(r)}</li>" for r, j in sorted(d["blocked"].items(), key=lambda kv: -len(kv[1])))
     todo = []
     if d["failed"]:
-        todo.append(f"{d['failed']} job(s) failed scoring: <code>python rescore.py --failed-only</code>")
+        todo.append(f"{d['failed']} job(s) failed scoring: <code>python -m tools.rescore --failed-only</code>")
     if d["unfinished"]:
         todo.append(f"{len(d['unfinished'])} application(s) opened, not finished: <code>python apply_jobs.py --include-opened</code>")
     if d["ratings"] < 10:
-        todo.append(f"Only {d['ratings']} hand rating(s): <code>python rating.py</code>")
+        todo.append(f"Only {d['ratings']} hand rating(s): <code>python -m tools.rating</code>")
     elif d["unrated_scored"]:
-        todo.append(f"{d['unrated_scored']} scored job(s) not rated: <code>python rating.py</code>")
+        todo.append(f"{d['unrated_scored']} scored job(s) not rated: <code>python -m tools.rating</code>")
     apps = ", ".join(f"{e(k)} {v}" for k, v in sorted(d["applications"].items())) or "none yet"
     return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Job summary {e(d['generated'])}</title><style>

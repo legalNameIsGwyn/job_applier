@@ -1,13 +1,13 @@
 """Clear the jobs database and/or archive the generated application documents.
 
-    python clear.py db               # empty the jobs database (a backup copy is made first)
-    python clear.py docs             # move every application folder into an archive folder
-    python clear.py all              # both
+    python -m tools.clear db               # empty the jobs database (a backup copy is made first)
+    python -m tools.clear docs             # move every application folder into an archive folder
+    python -m tools.clear all              # both
 
-    python clear.py db --dry-run     # show what would happen; change nothing
-    python clear.py all --yes        # don't ask for confirmation
-    python clear.py db --ratings     # ALSO delete your hand ratings and the score calibration
-    python clear.py db --no-backup   # skip the backup copy of the database
+    python -m tools.clear db --dry-run     # show what would happen; change nothing
+    python -m tools.clear all --yes        # don't ask for confirmation
+    python -m tools.clear db --ratings     # ALSO delete your hand ratings and the score calibration
+    python -m tools.clear db --no-backup   # skip the backup copy of the database
 
 What each one does
   db    Deletes every job and every application record (applied / skipped / opened / closed) from the

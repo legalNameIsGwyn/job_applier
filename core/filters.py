@@ -5,7 +5,7 @@ runs before any description is fetched. Add the description and the years-of-
 experience check runs too. Each returns a short reason string, or None to keep
 the job. Filtered jobs are saved with that reason (status "filtered", score 0),
 so they never get re-scraped and scored, and you can still see why with
-`python show_jobs.py --bottom`.
+`python -m tools.show_jobs --bottom`.
 
 The lists and numbers live in config/filter_rules.py; edit them there.
 """

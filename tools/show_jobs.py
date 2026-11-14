@@ -1,14 +1,14 @@
 """Show the top or bottom N scored jobs from the database.
 
 Usage (from the project folder):
-    python show_jobs.py                  # top 10
-    python show_jobs.py -n 5 --bottom    # 5 lowest scores
-    python show_jobs.py -n 20 --min-score 6 --days 3
-    python show_jobs.py --failed         # jobs whose scoring failed
-    python show_jobs.py -n 3 --full      # also print the job description
+    python -m tools.show_jobs                  # top 10
+    python -m tools.show_jobs -n 5 --bottom    # 5 lowest scores
+    python -m tools.show_jobs -n 20 --min-score 6 --days 3
+    python -m tools.show_jobs --failed         # jobs whose scoring failed
+    python -m tools.show_jobs -n 3 --full      # also print the job description
 
 Or from code:
-    from show_jobs import show_jobs
+    from tools.show_jobs import show_jobs
     show_jobs(10, "top")
 """
 

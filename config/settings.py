@@ -103,7 +103,7 @@ SUMMARY_AFTER_RUN = True      # print the summary at the end of main.py
 SUMMARY_DAYS = 1              # how far back "new" reaches
 SUMMARY_TOP = 10              # best matches listed
 SUMMARY_MIN_SCORE = 6         # what counts as a match
-SUMMARY_DIR = PROJECT_DIR / "reports"   # optional: where --html reports are saved
+SUMMARY_DIR = PROJECT_DIR / "data" / "reports"   # optional: where --html reports are saved
 
 # ------------------------------------------------------------------- rating
 

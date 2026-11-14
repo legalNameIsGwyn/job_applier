@@ -1,24 +1,24 @@
 """Track your applications after you apply: stage, contact, dates, notes.
 
-    python track.py                         # active applications (same as: list)
-    python track.py list --all              # include rejected / ghosted / withdrawn
-    python track.py list --stage interview
-    python track.py list --stale 14         # applied 14+ days ago with no answer
-    python track.py show acme               # everything about one application
+    python -m tools.track                         # active applications (same as: list)
+    python -m tools.track list --all              # include rejected / ghosted / withdrawn
+    python -m tools.track list --stage interview
+    python -m tools.track list --stale 14         # applied 14+ days ago with no answer
+    python -m tools.track show acme               # everything about one application
 
-    python track.py add acme                # you applied (outside the tool, or the tool missed it)
-    python track.py add acme --date 11/03   # ...on a past day
-    python track.py screening acme          # they replied / phone screen
-    python track.py interview acme --date 11/12 --note "technical, 45 min"
-    python track.py offer acme
-    python track.py rejected acme           # also: ghosted, withdrawn
-    python track.py stage acme interview    # same as the shortcuts above
+    python -m tools.track add acme                # you applied (outside the tool, or the tool missed it)
+    python -m tools.track add acme --date 11/03   # ...on a past day
+    python -m tools.track screening acme          # they replied / phone screen
+    python -m tools.track interview acme --date 11/12 --note "technical, 45 min"
+    python -m tools.track offer acme
+    python -m tools.track rejected acme           # also: ghosted, withdrawn
+    python -m tools.track stage acme interview    # same as the shortcuts above
 
-    python track.py note acme "Recruiter said decision by Friday"
-    python track.py contact acme --name "Sam Lee" --email sam@acme.com
-    python track.py schedule acme 11/15     # interview date
-    python track.py followup acme +7        # remind me in 7 days (shown in list and summary)
-    python track.py sync                    # start tracking jobs the apply tool already marked "applied"
+    python -m tools.track note acme "Recruiter said decision by Friday"
+    python -m tools.track contact acme --name "Sam Lee" --email sam@acme.com
+    python -m tools.track schedule acme 11/15     # interview date
+    python -m tools.track followup acme +7        # remind me in 7 days (shown in list and summary)
+    python -m tools.track sync                    # start tracking jobs the apply tool already marked "applied"
 
 <job> can be the job's number (the # column), its URL, or part of the company / title.
 Dates: 2026-11-09, 11/09, 11/09/2026, today, tomorrow, +7 (days from now).
@@ -35,7 +35,7 @@ def _pick(ref: str) -> str:
     if url:
         return url
     if not matches:
-        sys.exit(f"[TRACK] No job matches '{ref}'. Use the # from `python show_jobs.py`/`track.py list`, a URL, or part of the company.")
+        sys.exit(f"[TRACK] No job matches '{ref}'. Use the # from `python -m tools.show_jobs`/`track.py list`, a URL, or part of the company.")
     print(f"[TRACK] '{ref}' matches {len(matches)} jobs. Be more specific (use the # number):")
     for r in matches:
         print(f"   #{r['id']:<5} {r['company']} - {r['title']}")
@@ -88,7 +88,7 @@ def cmd_show(args):
     print(_title(url))
     print(f"  {url}")
     if not t:
-        print("  Not tracked yet. Start with: python track.py add", args.job)
+        print("  Not tracked yet. Start with: python -m tools.track add", args.job)
         return
     print(f"  Stage: {t['stage']}   applied {t['applied_on']}   updated {t['updated_on']}")
     print(f"  Applied via: {t['site'] or '?'} / {t['ats'] or '?'}   score then: "
@@ -196,7 +196,7 @@ def main():
     s.add_argument("--note")
     s.set_defaults(fn=cmd_stage)
 
-    for stage in T.STAGES[1:]:   # shortcuts: python track.py interview acme
+    for stage in T.STAGES[1:]:   # shortcuts: python -m tools.track interview acme
         s = sub.add_parser(stage, help=f"set the stage to {stage}")
         s.add_argument("job")
         s.add_argument("--date", help="when it happened (default today)")

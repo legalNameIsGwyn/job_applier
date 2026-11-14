@@ -1,9 +1,9 @@
 """Check that the project is in place and working. Run it from the project root.
 
-    python check_setup.py                 # everything
-    python check_setup.py --quick         # files, imports and settings only (no Ollama / browser / network)
-    python check_setup.py --no-ollama     # skip the model check
-    python check_setup.py --no-browser    # skip the Firefox check
+    python -m tools.check_setup                 # everything
+    python -m tools.check_setup --quick         # files, imports and settings only (no Ollama / browser / network)
+    python -m tools.check_setup --no-ollama     # skip the model check
+    python -m tools.check_setup --no-browser    # skip the Firefox check
 
 It never changes anything. Each line is [ OK ], [WARN] (worth a look) or [FAIL] (something is broken).
 
@@ -28,7 +28,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
+
 SKIP_DIRS = {"archive", "data", "reports", "__pycache__", "venv", ".venv", "env", ".git", "node_modules",
              "backups", "archived_applications", "applications"}
 THIRD_PARTY = {"jobspy": "python-jobspy", "ollama": "ollama", "pandas": "pandas", "numpy": "numpy",
