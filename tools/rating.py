@@ -29,13 +29,17 @@ import os
 import re
 import shutil
 import random
-import sqlite3
 import textwrap
 
+from config.settings import DB_PATH, MIN_RATINGS
 from core.calibration import (
-    CALIBRATION_FILE, DEFAULT_CALIBRATION, MIN_RATINGS, apply_calibration_to_db, calibration_history,
-    clear_calibration, fit_calibration, keyword_score, load_calibration, save_calibration,
+    DEFAULT_CALIBRATION, apply_calibration_to_db, calibration_history, clear_calibration, fit_calibration,
+    keyword_score, load_calibration, save_calibration,
 )
+from db import ratings as R
+from db.queries import get_job_by_url
+from db.repo import init_db
+from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 from config.settings import (
     FIT_ON_ALL_RATINGS, RATING_BATCH_SIZE, RATING_DESC_CHARS, RATING_DESCRIPTION, RATING_SHOW_MODEL_NOTES,
     RATING_SUMMARY_BULLETS, FULL_TRUST_RATINGS, RATING_CARD_WIDTH, RATING_CARD_MAX_WIDTH,
@@ -45,9 +49,8 @@ from core.job_info import (
     eligibility_flags, posting_summary, salary_from_text, special_notes, summary_points, years_range,
 )
 
-from core.db import DB_PATH, init_db
 from core.filters import min_years_required, my_years_experience, years_gap_note
-from tools.dedupe import description_words, duplicate_gap, similarity, title_key
+from tools.dedupe import description_words, duplicate_gap, similarity, title_key   # moves to core/dedupe.py later
 
 SIMILAR_HINT = 0.5  # show "possibly the same posting" at this much word overlap (same title only)
 
@@ -108,34 +111,11 @@ def gray_text(text: str) -> str:
 def primary_text(text: str, bold: bool = False) -> str:
     return colorize(text, "primary", bold)
 
-def _connect(db_path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
-def eligible_jobs(db_path: str = DB_PATH) -> list[dict]:
-    """Scored jobs you haven't rated or skipped, with a description to judge them by."""
-    conn = _connect(db_path)
-    try:
-        rows = conn.execute(
-            """SELECT j.job_url, j.title, j.company, j.location, j.description,
-                      j.matched_skills, j.gaps, j.salary,
-                      COALESCE(j.model_score, j.match_score) AS model_score
-               FROM jobs j LEFT JOIN ratings r ON r.job_url = j.job_url
-               WHERE r.job_url IS NULL
-                 AND j.status = 'scored'
-                 AND COALESCE(j.model_score, j.match_score) > 0
-                 AND j.gaps NOT LIKE '%auto-rejected%'
-                 AND TRIM(j.description) <> ''"""
-        ).fetchall()
-    finally:
-        conn.close()
-    return [dict(r) for r in rows]
-
-
-def pick_batch(jobs: list[dict], n: int, rng: random.Random) -> list[dict]:
-    """n jobs spread evenly across the model-score range (one random job per slice), shuffled."""
+def pick_batch(jobs: list[dict], n: int, rng: random.Random, rerate: bool = False) -> list[dict]:
+    """n jobs spread evenly across the model-score range (one per slice), shuffled.
+    Normal rating picks randomly within a slice; re-rating picks the one rated longest ago."""
     if len(jobs) <= n:
         batch = list(jobs)
     else:
@@ -143,9 +123,19 @@ def pick_batch(jobs: list[dict], n: int, rng: random.Random) -> list[dict]:
         batch = []
         for i in range(n):
             lo, hi = i * len(jobs) // n, (i + 1) * len(jobs) // n
-            batch.append(jobs[rng.randrange(lo, hi)])
+            if rerate:
+                batch.append(min(jobs[lo:hi], key=lambda j: j["last_rated_at"]))
+            else:
+                batch.append(jobs[rng.randrange(lo, hi)])
     rng.shuffle(batch)
     return batch
+
+def eligible_jobs(db_path: str = DB_PATH, rerate: bool = False) -> list[dict]:
+    return R.eligible_jobs(rerate, db_path)
+
+
+def load_pool(db_path: str = DB_PATH) -> list[dict]:
+    return R.load_pool(db_path)
 
 
 def _json_list(value) -> list[str]:
@@ -154,24 +144,6 @@ def _json_list(value) -> list[str]:
     except (TypeError, ValueError):
         return []
     return [str(i) for i in items] if isinstance(items, list) else []
-
-
-def _wrap(text: str, indent: str = "  ") -> str:
-    return textwrap.fill(text, 100, initial_indent=indent, subsequent_indent=indent + "  ")
-
-
-def load_pool(db_path: str = DB_PATH) -> list[dict]:
-    """Every scored or duplicate job (with your rating, if any) to compare against while rating."""
-    conn = _connect(db_path)
-    try:
-        rows = conn.execute(
-            """SELECT j.job_url, j.title, j.company, j.location, j.description, j.status, j.scraped_at, r.rating
-               FROM jobs j LEFT JOIN ratings r ON r.job_url = j.job_url
-               WHERE j.job_url IS NOT NULL AND j.status IN ('scored', 'duplicate')""").fetchall()
-    finally:
-        conn.close()
-    return [dict(r) for r in rows]
-
 
 def _ranked(job: dict, candidates: list[dict]) -> list[tuple[float, dict]]:
     """(word overlap with this job, candidate), most similar first."""
@@ -221,16 +193,8 @@ def ask_original(job: dict, pool: list[dict], ask, show) -> dict | None:
 
 
 def mark_duplicate(job_url: str, original: dict | None, db_path: str = DB_PATH) -> None:
-    """You flagged this job as a copy: status 'duplicate', score 0, so it leaves the tuning and the rankings."""
-    gaps = (duplicate_gap(original) if original else ["Duplicate (original not identified)"])
-    gaps.append("Flagged by you while rating")
-    conn = _connect(db_path)
-    try:
-        with conn:
-            conn.execute("UPDATE jobs SET status = 'duplicate', match_score = 0, gaps = ? WHERE job_url = ?",
-                         (json.dumps(gaps), job_url))
-    finally:
-        conn.close()
+    """You flagged this job as a copy: it leaves the tuning and the rankings."""
+    R.mark_duplicate(job_url, original["job_url"] if original else None, db_path)
 
 
 BULLET = "•"
@@ -348,7 +312,7 @@ def _show_posting(description: str, show) -> None:
         _text_field("Posting", excerpt, gray_text, show)
 
 
-def _show_job(i: int, total: int, job: dict, show, similar=()) -> None:
+def _print_card(i: int, total: int, job: dict, show, similar=()) -> None:
     """One job's card: header, warnings, salary / years / notes, the model's skills and gaps, then the posting."""
     description = job["description"] or ""
     show(cyan_text(f"[{i}/{total}]"))
@@ -422,25 +386,11 @@ def _strength(rho) -> str:
 
 
 def _fit_rows(db_path: str, batch: int | None = None) -> list[dict]:
-    query = """SELECT COALESCE(j.model_score, j.match_score) AS model, j.keyword_score AS kw,
-                      r.rating AS rating, j.title, j.company, j.description
-               FROM ratings r JOIN jobs j ON j.job_url = r.job_url
-               WHERE r.rating IS NOT NULL AND j.status = 'scored'
-                 AND COALESCE(j.model_score, j.match_score) > 0"""
-    params: tuple = ()
-    if batch is not None:
-        query += " AND r.batch = ?"
-        params = (batch,)
-    conn = _connect(db_path)
-    try:
-        rows = [dict(r) for r in conn.execute(query, params)]
-    finally:
-        conn.close()
+    rows = R.fit_rows(batch, db_path)
     for r in rows:
         if r["kw"] is None:
             r["kw"] = keyword_score(r["title"], r["description"])
     return rows
-
 
 def recalibrate(batch: int | None = None, db_path: str = DB_PATH, show=print) -> dict | None:
     """Fit a new calibration to the saved ratings, add it to the history, rescore the database.
@@ -460,17 +410,17 @@ def recalibrate(batch: int | None = None, db_path: str = DB_PATH, show=print) ->
              "ratings are needed. Your ratings are saved.")
         return None
 
-    previous = load_calibration()
-    save_calibration(cal)  # appended to the history; earlier fits are kept
+    previous = load_calibration(db_path)
+    save_calibration(cal, db_path)  # appended to the history; earlier fits are kept
     updated = apply_calibration_to_db(db_path, cal)
-    _print_report(cal, rows, previous, calibration_history(), updated, show)
+    _print_report(cal, rows, previous, calibration_history(db_path), updated, show)
     return cal
 
 
 def _print_report(cal: dict, rows: list[dict], previous: dict, history: list[dict], updated: int, show) -> None:
     show("\n" + "=" * 72)
     show(f"CALIBRATION RESULT  ({cal['n']} ratings"
-         f"{', latest batch only' if cal['latest_batch_only'] else ', all batches'})")
+         f"{', latest batch only' if cal['latest_batch_only'] else ''}), profile '{active_profile_name()}'")
     show("How well each score ranks jobs like you did (1.0 = identical, 0 = unrelated):")
     show(f"  model alone     : {cal['spearman_model']}  ({_strength(cal['spearman_model'])})")
     show(f"  keywords alone  : {cal['spearman_keyword']}  ({_strength(cal['spearman_keyword'])})")
@@ -507,42 +457,37 @@ def rate_jobs(
     ask=input,
     show=print,
     seed: int | None = None,
+    rerate: bool = False,
 ) -> dict | None:
-    """Present n new jobs to hand-rate, then re-tune the scores on your ratings.
+    """Present n jobs to hand-rate, then re-tune the scores on your ratings.
 
-    n:                 jobs to show (default RATING_BATCH_SIZE in config/settings.py)
-    latest_batch_only: True = fit on this batch only; False = fit on every rating you have
-                       ever made; None (default) = follow FIT_ON_ALL_RATINGS in settings.
-
-    Returns the new calibration (also saved to calibration.json), or None if there
-    weren't enough ratings or nothing to tune. `ask`, `show` and `seed` exist so the
-    function can be tested without a keyboard.
+    rerate=True offers jobs you already rated (your old rating and the model's score stay hidden;
+    the ones rated longest ago come first). Skipping keeps the old rating; a new rating replaces it
+    and the old one is kept as previous_rating.
     """
     n = n or DEFAULT_BATCH
     if latest_batch_only is None:
         latest_batch_only = not FIT_ON_ALL_RATINGS
     init_db(db_path)
-    jobs = eligible_jobs(db_path)
+    jobs = eligible_jobs(db_path, rerate)
     if not jobs:
-        show("\nNo unrated jobs to show. Run main.py to score more, then try again.")
+        show("\nNo rated jobs to re-rate yet." if rerate else
+             "\nNo unrated jobs to show. Run main.py to score more, then try again.")
         return None
 
-    batch = pick_batch(jobs, n, random.Random(seed))
+    batch = pick_batch(jobs, n, random.Random(seed), rerate)
     if len(batch) < n:
-        show(f"\nOnly {len(batch)} unrated jobs are available (asked for {n}). "
-             "Run main.py to score more for the next round.")
+        show(f"\nOnly {len(batch)} job(s) available (asked for {n}).")
 
-    conn = _connect(db_path)
-    try:
-        batch_id = conn.execute("SELECT COALESCE(MAX(batch), 0) + 1 FROM ratings").fetchone()[0]
-    finally:
-        conn.close()
-
+    batch_id = R.next_batch_id(db_path)
+    olds = {j["job_url"]: j["old_rating"] for j in batch if rerate}
+    show(f"\n[PROFILE: {active_profile_name()}]" + ("  RE-RATING: give each job a fresh, independent rating." if rerate else ""))
     show(INSTRUCTIONS)
     pool = load_pool(db_path)
     rated = duplicates = 0
+    changes = []
     for i, job in enumerate(batch, start=1):
-        _show_job(i, len(batch), job, show, similar_jobs(job, pool))
+        _print_card(i, len(batch), job, show, similar_jobs(job, pool))
         answer = _ask_rating(ask, lambda job=job: _show_full(job, show))
         if answer == "quit":
             break
@@ -550,71 +495,60 @@ def rate_jobs(
             mark_duplicate(job["job_url"], ask_original(job, pool, ask, show), db_path)
             for other in pool:
                 if other["job_url"] == job["job_url"]:
-                    other["status"] = "duplicate"   # so later cards say it is already marked
+                    other["status"] = "duplicate"
             duplicates += 1
             continue
-        conn = _connect(db_path)
-        try:
-            with conn:
-                conn.execute(
-                    "INSERT OR REPLACE INTO ratings (job_url, rating, batch) VALUES (?, ?, ?)",
-                    (job["job_url"], answer, batch_id),
-                )
-        finally:
-            conn.close()
-        rated += answer is not None
+        R.save_rating(job["job_url"], answer, batch_id, rerate=rerate, db_path=db_path)
+        if answer is not None:
+            rated += 1
+            if rerate:
+                changes.append((olds[job["job_url"]], answer, job))
 
     show(f"\nSaved {rated} rating(s) in batch {batch_id}."
          + (f" Marked {duplicates} duplicate(s); they are left out of the tuning." if duplicates else ""))
+    if changes:
+        diffs = [abs(new - old) for old, new, _ in changes]
+        show(f"Re-rating consistency: on average you moved {sum(diffs) / len(diffs):.1f} point(s) from your earlier rating "
+             f"({sum(d == 0 for d in diffs)} of {len(diffs)} unchanged).")
+        for old, new, j in sorted(changes, key=lambda c: -abs(c[1] - c[0]))[:3]:
+            if old != new:
+                show(f"  {old:g} -> {new:g}  {j['title'][:40]} - {j['company'][:22]}")
     return recalibrate(batch_id if latest_batch_only else None, db_path, show)
 
-
 def reset_ratings(db_path: str = DB_PATH, ask=input, show=print) -> bool:
-    """Delete every rating and the calibration history, and put all scores back on the default blend.
-
-    This is the only thing that starts the tuning over; normal runs only ever add to it.
-    """
+    """Delete this profile's ratings and calibration history; put its scores back on the default blend."""
     init_db(db_path)
-    conn = _connect(db_path)
-    try:
-        count = conn.execute("SELECT COUNT(*) FROM ratings").fetchone()[0]
-    finally:
-        conn.close()
-    show(f"This deletes all {count} ratings (including skipped jobs) and the calibration history, "
-         "and puts every job's score back on the default blend.")
+    count = R.rating_count(db_path)
+    show(f"This deletes all {count} ratings for profile '{active_profile_name()}' (including skipped jobs) "
+         "and its calibration history, and puts its scores back on the default blend.")
     if ask("Type RESET to continue: ").strip() != "RESET":
         show("Cancelled. Nothing was changed.")
         return False
-    conn = _connect(db_path)
-    try:
-        with conn:
-            conn.execute("DELETE FROM ratings")
-    finally:
-        conn.close()
-    clear_calibration()
+    R.reset_ratings(db_path)
     updated = apply_calibration_to_db(db_path, dict(DEFAULT_CALIBRATION))
     show(f"Done. Rescored {updated} jobs with the default blend. You can start rating from scratch.")
     return True
 
-
 def show_calibration(show=print) -> None:
     """Print the calibration currently in use."""
-    cal = load_calibration()
+    cal = load_calibration(DB_PATH)
+
     if not cal.get("fitted"):
         show(f"No calibration fitted yet (using the default 70% model / 30% keywords). "
              f"Rate at least {MIN_RATINGS} jobs with:  python -m tools.rating")
         return
     show(f"Calibration from {cal['fitted_at']} ({cal['n']} ratings"
-         f"{', latest batch only' if cal['latest_batch_only'] else ''}), stored in {CALIBRATION_FILE.name}")
+         f"{', latest batch only' if cal['latest_batch_only'] else ''}), profile '{active_profile_name()}'")
     show(f"  Blend: {round(cal['w_model'] * 100)}% model / {round((1 - cal['w_model']) * 100)}% keywords, "
-         f"then x{cal['a']} + {cal['b']}"
-         + (f"  (pulled toward the defaults: {round(cal['trust'] * 100)}% of the fit used, "
+        f"then x{cal['a']} + {cal['b']}"
+        + (f"  (pulled toward the defaults: {round(cal['trust'] * 100)}% of the fit used, "
             f"full at {FULL_TRUST_RATINGS} ratings)" if cal.get("trust", 1) < 1 else ""))
     show(f"  Agreement with your ratings: model {cal['spearman_model']} ({_strength(cal['spearman_model'])}), "
-         f"keywords {cal['spearman_keyword']} ({_strength(cal['spearman_keyword'])}), "
-         f"final {cal['spearman_final']} ({_strength(cal['spearman_final'])})")
+        f"keywords {cal['spearman_keyword']} ({_strength(cal['spearman_keyword'])}), "
+        f"final {cal['spearman_final']} ({_strength(cal['spearman_final'])})")
     show(f"  Average distance from your ratings: model {cal['mae_model']} -> final {cal['mae_final']} points")
-    history = calibration_history()
+
+    history = calibration_history(DB_PATH)
     trend = [h["spearman_final"] for h in history if h.get("spearman_final") is not None]
     if len(trend) > 1:
         show(f"  {len(history)} fits so far; agreement with you, fit by fit: " + " -> ".join(f"{t:g}" for t in trend[-8:]))
@@ -623,11 +557,14 @@ def show_calibration(show=print) -> None:
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Hand-rate jobs to check and tune the scores.")
     p.add_argument("-n", type=int, default=DEFAULT_BATCH, help=f"jobs per batch (default {DEFAULT_BATCH})")
+    p.add_argument("--rerate", action="store_true", help="re-rate jobs you already rated (longest ago first)")
     p.add_argument("--latest-only", action="store_true", help="tune using only this batch's ratings")
     p.add_argument("--all-ratings", action="store_true", help="tune using every rating (overrides settings)")
     p.add_argument("--report", action="store_true", help="show the current calibration and exit")
-    p.add_argument("--reset", action="store_true", help="delete all ratings and fits and start over (asks first)")
+    p.add_argument("--reset", action="store_true", help="delete this profile's ratings and fits (asks first)")
+    add_profile_arguments(p)
     args = p.parse_args()
+    apply_profile_arguments(args)
 
     if args.reset:
         reset_ratings()
@@ -635,4 +572,4 @@ if __name__ == "__main__":
         show_calibration()
     else:
         latest = True if args.latest_only else (False if args.all_ratings else None)
-        rate_jobs(args.n, latest_batch_only=latest)
+        rate_jobs(args.n, latest_batch_only=latest, rerate=args.rerate)
