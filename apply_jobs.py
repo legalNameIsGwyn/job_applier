@@ -160,7 +160,8 @@ def resolve_via_linkedin(jobs: list[dict]) -> int:
             results = resolve_links(context, [j["job_url"] for j in todo], LINKEDIN_CLICK_DELAY)
         finally:
             context.close()
-        found = closed = 0
+    found = closed = 0
+    
     for job in todo:
         outcome, url = results.get(job["job_url"], ("login", None))
         if outcome == "link" and url:
