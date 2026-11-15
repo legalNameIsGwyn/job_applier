@@ -5,6 +5,8 @@ jobs.csv
 *.sqlite
 archive/
 backup_before_fix_imports_*.zip
+profiles/*/resume.json
+profiles/*/applications/
 
 # Python
 __pycache__/

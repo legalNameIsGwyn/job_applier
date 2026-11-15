@@ -42,3 +42,6 @@ COMMON_TERMS = [
 ]
 
 CASE_SENSITIVE_TERMS = ["Go", "Swift"]
+
+from config.profile_loader import apply_overrides  # noqa: E402
+apply_overrides(globals())

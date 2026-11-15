@@ -31,3 +31,7 @@ Rate your match on a scale of 1-10. Provide:
 
 Respond with JSON only, using exactly these keys:
 {{"match_score": <number 0-10>, "matched_skills": ["..."], "gaps": ["..."]}}"""
+
+
+from config.profile_loader import apply_overrides  # noqa: E402
+apply_overrides(globals())

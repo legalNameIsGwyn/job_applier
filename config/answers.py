@@ -57,3 +57,6 @@ ANSWER_RULES = [
 
 # Legal attestations are never filled for you: they are skipped and listed for you to handle.
 NEVER_ANSWER = r"signature|certify|attest|under penalty"
+
+from config.profile_loader import apply_overrides  # noqa: E402
+apply_overrides(globals())
