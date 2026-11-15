@@ -9,8 +9,8 @@ from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent  # the folder that contains main.py
 
-
 DEFAULT_PROFILE = "software"   # the profile used when you don't pass --profile
+MIN_SCORE = 5
 
 # --------------------------------------------------------------------- files and folders
 RESUME_FILE = PROJECT_DIR / "data" / "resume.json"                 # your resume data (stays outside config/)
@@ -67,7 +67,6 @@ USER_AGENT = (
 
 # ----------------------------------------------------------------------------- documents
 MAKE_DOCS = True          # create a resume + cover letter automatically after scoring
-DOC_MIN_SCORE = 6         # only jobs scoring at least this get documents
 MAX_DOCS_PER_RUN = 10     # most NEW jobs to make documents for per run
 DOC_WINDOW_DAYS = 7       # only consider jobs scraped in the last N days
 MAX_PROJECTS = 3          # projects shown on the resume
@@ -105,10 +104,12 @@ SHOW_DEFAULT_COUNT = 10         # rows printed by `python show_jobs.py`
 SUMMARY_AFTER_RUN = True      # print the summary at the end of main.py
 SUMMARY_DAYS = 1              # how far back "new" reaches
 SUMMARY_TOP = 10              # best matches listed
-SUMMARY_MIN_SCORE = 6         # what counts as a match
 SUMMARY_DIR = PROJECT_DIR / "data" / "reports"   # optional: where --html reports are saved
 
 # ------------------------------------------------------------------- rating
 
 RATING_CARD_WIDTH = None       # None = fit the terminal; or a number like 90
 RATING_CARD_MAX_WIDTH = 100    # cap used when RATING_CARD_WIDTH is None
+
+from config.profile_loader import apply_overrides  # noqa: E402
+apply_overrides(globals())

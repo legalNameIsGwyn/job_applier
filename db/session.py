@@ -1,18 +1,19 @@
 """Engine setup, sessions and the active profile.
 
 SQLite ignores foreign keys unless they are switched on for every connection.
-The active profile is chosen once at startup (select_profile) and every db function reads it.
+The active profile is the one the config files loaded (--profile, JOB_PROFILE or DEFAULT_PROFILE);
+select_profile checks it against the database and makes sure the database has a row for it.
+A profile exists when profiles/<name>/profile.py exists; its database row is added on first use.
 """
 
 import os
-
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
-from config.settings import DB_PATH, DEFAULT_PROFILE
+from config.settings import ACTIVE_PROFILE, DB_PATH, DEFAULT_PROFILE
 from db.models import Base, Profile
 
 _engines: dict = {}
@@ -69,45 +70,51 @@ def get_or_create_profile(session, name: str) -> Profile:
 
 
 def active_profile_name() -> str:
-    return _active_name or os.environ.get("JOB_PROFILE") or DEFAULT_PROFILE
+    return _active_name or ACTIVE_PROFILE
 
 
 def set_active_profile(name: str) -> None:
     global _active_name
     _active_name = name
-    os.environ["JOB_PROFILE"] = name   
+    os.environ["JOB_PROFILE"] = name   # parallel apply windows inherit this
 
 
 def current_profile_id(session) -> int:
     pid = session.scalar(select(Profile.id).where(Profile.name == active_profile_name()))
     if pid is None:
         raise LookupError(f"profile '{active_profile_name()}' is not in the database "
-                          "(select it first with db.session.select_profile)")
+                          "(call db.session.select_profile first)")
     return pid
 
 
-def select_profile(name: str | None = None, db_path=DB_PATH, create: bool = False) -> str:
-    """Make `name` (or DEFAULT_PROFILE) the active profile. A name that doesn't exist yet is only
-    created with create=True, so a typo in --profile can't quietly make a new profile."""
-    name = name or DEFAULT_PROFILE
+def select_profile(name: str | None = None, db_path=DB_PATH) -> str:
+    """Confirm the profile for this run and make sure the database knows it.
+
+    The settings were loaded for ACTIVE_PROFILE before any script started, so asking for a different
+    one here would score jobs with one profile's prompts and save them under another's name. That is
+    refused rather than guessed at.
+    """
+    name = name or ACTIVE_PROFILE
+    if ACTIVE_PROFILE == "_defaults":
+        raise SystemExit("[PROFILE] This command needs a real profile, but none was loaded. "
+                         "Run it without JOB_PROFILE=_defaults, or pass --profile NAME.")
+    if name != ACTIVE_PROFILE:
+        raise SystemExit(f"[PROFILE] The settings were loaded for '{ACTIVE_PROFILE}', not '{name}'. "
+                         "Type the full option --profile NAME (argparse abbreviations like --prof aren't seen by the config loader).")
     create_tables(get_engine(db_path))
     with session_scope(db_path) as s:
-        if s.scalar(select(Profile).where(Profile.name == name)) is None:
-            if not (create or name == DEFAULT_PROFILE):
-                known = ", ".join(s.scalars(select(Profile.name).order_by(Profile.name))) or "none"
-                raise SystemExit(f"[PROFILE] No profile named '{name}'. Existing profiles: {known}. "
-                                 "Add --create-profile to make a new one.")
+        if s.scalar(select(Profile.id).where(Profile.name == name)) is None:
             s.add(Profile(name=name))
-            print(f"[PROFILE] Created profile '{name}'.")
+            print(f"[PROFILE] First use of '{name}': added it to the database.")
     set_active_profile(name)
     return name
 
 
 def add_profile_arguments(parser) -> None:
-    """Adds --profile and --create-profile to a script's argparse parser."""
-    parser.add_argument("--profile", help=f"which profile to use (default: {DEFAULT_PROFILE}, set in config/settings.py)")
-    parser.add_argument("--create-profile", action="store_true", help="allow --profile to name a profile that doesn't exist yet")
+    """Adds --profile to a script's argparse parser. (The config loader reads it from the command line first.)"""
+    parser.add_argument("--profile", metavar="NAME",
+                        help=f"which profile to use (default: {DEFAULT_PROFILE}, set in config/settings.py)")
 
 
 def apply_profile_arguments(args, db_path=DB_PATH) -> str:
-    return select_profile(args.profile, db_path, create=args.create_profile)
+    return select_profile(args.profile, db_path)

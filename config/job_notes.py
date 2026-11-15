@@ -19,3 +19,6 @@ NOTE_PATTERNS = [
     ("Mentions equity or bonus", r"\bequity\b|stock options|signing bonus|annual bonus"),
     ("Unpaid or commission-only", r"\bunpaid\b|commission[- ]only|volunteer position"),
 ]
+
+from config.profile_loader import apply_overrides  # noqa: E402
+apply_overrides(globals())

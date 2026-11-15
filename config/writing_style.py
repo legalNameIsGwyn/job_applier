@@ -112,3 +112,6 @@ LETTER_AUTHORIZATION_RULE = (
     "- In paragraph 3, say in one short sentence that I am a {work_authorization}{availability_clause}.\n"
 )
 LETTER_AVAILABILITY_CLAUSE = " and available for an {availability}"  # {availability} from resume.json
+
+from config.profile_loader import apply_overrides  # noqa: E402
+apply_overrides(globals())

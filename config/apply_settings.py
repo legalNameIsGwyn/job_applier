@@ -54,3 +54,5 @@ ASK_ABOUT_UNKNOWN = True   # True = stop and ask in the terminal when a question
 DRAFT_FREE_TEXT = True     # True = the local model drafts answers to long "why us?" style questions
 FREE_TEXT_MAX_WORDS = 120  # length limit for those drafts
 
+from config.profile_loader import apply_overrides  # noqa: E402
+apply_overrides(globals())

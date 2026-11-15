@@ -54,3 +54,6 @@ NO_BLOCKER_PATTERN = (
     r"|not require (a )?(security )?clearance"
     r"|without (a )?clearance"
 )
+
+from config.profile_loader import apply_overrides  # noqa: E402
+apply_overrides(globals())
