@@ -33,12 +33,12 @@ from documents.application_maker import create_application, job_folder, name_fie
 from applying.ats import (CLICK_CHECKED, GENERIC_SITES, IMPLEMENTED, NO_LINK, NO_LINK_MARKERS, application_url, detect_ats,
                  site_key)
 from config.apply_settings import (
-    APPLY_MAX_PER_RUN, APPLY_MIN_SCORE, APPLY_WINDOW_DAYS, AUTO_FIND_LINKS, BROWSER_PROFILE_DIR, ENABLED_SITES,
+    APPLY_MAX_PER_RUN, APPLY_WINDOW_DAYS, AUTO_FIND_LINKS, BROWSER_PROFILE_DIR, ENABLED_SITES,
     CHECK_STILL_OPEN, FIND_LINKS_MAX, HEADLESS, LINKEDIN_CLICK_APPLY, LINKEDIN_CLICK_DELAY, LINKEDIN_CLICK_MAX, PAGE_TIMEOUT_MS,
     SLOW_MO_MS, WORKDAY_AUTO_ADVANCE, WORKDAY_MAX_STEPS,
 )
 import config.apply_settings as _cfg
-from config.settings import COVER_LETTER_FILENAME, DB_PATH, RESUME_FILENAME
+from config.settings import COVER_LETTER_FILENAME, DB_PATH, RESUME_FILENAME, MIN_SCORE
 from db.queries import clear_missing_link_markers, get_candidates   # get_candidates: also imported by tools/summary.py
 from db.repo import init_db, record_application, set_apply_url
 from db.session import add_profile_arguments, apply_profile_arguments
@@ -318,7 +318,7 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fill job applications in a browser. Never submits.")
     parser.add_argument("--top", type=int, default=APPLY_MAX_PER_RUN, help="most jobs to open this run")
-    parser.add_argument("--min-score", type=float, default=APPLY_MIN_SCORE)
+    parser.add_argument("--min-score", type=float, default=MIN_SCORE)
     parser.add_argument("--days", type=int, default=APPLY_WINDOW_DAYS)
     parser.add_argument("--url", help="apply to this job (its URL in your database)")
     parser.add_argument("--set-url", nargs=2, metavar=("JOB_URL", "APPLY_URL"),

@@ -1,0 +1,40 @@
+{
+  "_readme": "TEMPLATE. Copy it into a profile (python -m tools.profile new NAME does this) and replace every value with your real details. Only list things that are true: scoring, documents and form answers are built only from this file.",
+  "name": "Your Name",
+  "legal_name": "",
+  "contact": {
+    "email": "you@example.com",
+    "phone": "555-555-5555",
+    "location": "City, ST",
+    "github": "",
+    "gitlab": ""
+  },
+  "work_authorization": "",
+  "availability": "",
+  "summary": "Two or three plain sentences about you and the kind of work you want.",
+  "skills": ["First skill", "Second skill"],
+  "certifications": [
+    {"name": "Certification name", "date": "Month Year", "credential_id": ""}
+  ],
+  "education": [
+    {"degree": "Degree, Major", "school": "School name", "years": "Start - End"}
+  ],
+  "experience": [
+    {
+      "role": "Job title",
+      "company": "Company name",
+      "years": "Start - End",
+      "bullets": ["One real thing you did, naming the tool or the result."],
+      "description": ""
+    }
+  ],
+  "projects": [
+    {
+      "name": "Project name",
+      "url": "",
+      "bullets": ["What it does and what you built it with."],
+      "description": "",
+      "skills": ["First skill"]
+    }
+  ]
+}

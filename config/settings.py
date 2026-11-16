@@ -67,7 +67,7 @@ USER_AGENT = (
 
 # ----------------------------------------------------------------------------- documents
 MAKE_DOCS = True          # create a resume + cover letter automatically after scoring
-MAX_DOCS_PER_RUN = 10     # most NEW jobs to make documents for per run
+MAX_DOCS_PER_RUN = None     # most NEW jobs to make documents for per run
 DOC_WINDOW_DAYS = 7       # only consider jobs scraped in the last N days
 MAX_PROJECTS = 3          # projects shown on the resume
 TAILOR_MAX_SKILLS = 12    # skills the model may move to the front (all skills are still listed)

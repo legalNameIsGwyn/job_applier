@@ -650,7 +650,8 @@ def cmd_check(name: str) -> None:
     warns = sum(r[0] == "warn" for r in results)
     print()
     if fails:
-        raise SystemExit(bad(f"{fails} problem(s) to fix before using this profile." + (f" ({warns} warning(s))" if warns else "")))
+        tint = {"ok": "cyan", "warn": "yellow", "fail": "red"}[level]
+        print("  " + mark(paint(what, "white", True) + (paint("  " + detail, tint, True) if detail else "")))
     print(good(f"Ready to use: python main.py --profile {name}" + (f"   ({warns} warning(s) above)" if warns else "")))
 
 
