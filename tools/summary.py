@@ -26,11 +26,10 @@ from db.session import active_profile_name, add_profile_arguments, apply_profile
 
 SUMMARY_DAYS = getattr(_settings, "SUMMARY_DAYS", 1)            # how far back "new" reaches
 SUMMARY_TOP = getattr(_settings, "SUMMARY_TOP", 10)             # best matches listed
-SUMMARY_MIN_SCORE = getattr(_settings, "SUMMARY_MIN_SCORE", 6)  # a "match" scores at least this
+MIN_SCORE = getattr(_settings, "MIN_SCORE", 5)  # a "match" scores at least this
 SUMMARY_DIR = Path(getattr(_settings, "SUMMARY_DIR", Path(DB_PATH).resolve().parent / "reports"))
 
-
-def gather(days: float = SUMMARY_DAYS, top: int = SUMMARY_TOP, min_score: float = SUMMARY_MIN_SCORE,
+def gather(days: float = SUMMARY_DAYS, top: int = SUMMARY_TOP, min_score: float = MIN_SCORE,
            db_path: str = DB_PATH) -> dict:
     """Everything the summary shows, as plain data."""
     data = {"days": days, "min_score": min_score, "profile": active_profile_name(),
@@ -55,12 +54,12 @@ def gather(days: float = SUMMARY_DAYS, top: int = SUMMARY_TOP, min_score: float 
 def _apply_readiness(min_score, days, db_path):
     """Which jobs apply_jobs.py could fill right now, and why the others can't be (no network, no browser)."""
     try:
-        from apply_jobs import APPLY_MIN_SCORE, APPLY_WINDOW_DAYS, target_for
+        from apply_jobs import APPLY_WINDOW_DAYS, target_for
     except Exception:
         return [], {}
     ready, blocked = [], {}
     try:
-        for job in get_candidates(APPLY_MIN_SCORE, max(days, APPLY_WINDOW_DAYS), db_path=db_path):
+        for job in get_candidates(_settings.MIN_SCORE, max(days, APPLY_WINDOW_DAYS), db_path=db_path):
             link, ats, reason = target_for(job)
             if reason:
                 blocked.setdefault(reason, []).append(job)
@@ -179,7 +178,7 @@ td.s{{font-weight:700;width:3rem}}span{{color:#666;font-size:.9em}}.none{{color:
 # -------------------------------------------------------------------------------- API
 
 
-def print_summary(days: float = SUMMARY_DAYS, top: int = SUMMARY_TOP, min_score: float = SUMMARY_MIN_SCORE,
+def print_summary(days: float = SUMMARY_DAYS, top: int = SUMMARY_TOP, min_score: float = MIN_SCORE,
                   html_report: bool = False, open_it: bool = False) -> None:
     data = gather(days, top, min_score)
     print("\n" + render_text(data))
@@ -196,7 +195,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Summary of new jobs and what needs you.")
     parser.add_argument("--days", type=float, default=SUMMARY_DAYS, help="how far back 'new' reaches")
     parser.add_argument("--top", type=int, default=SUMMARY_TOP)
-    parser.add_argument("--min-score", type=float, default=SUMMARY_MIN_SCORE)
+    parser.add_argument("--min-score", type=float, default=MIN_SCORE)
     parser.add_argument("--html", action="store_true", help="also save an HTML report and open it")
     add_profile_arguments(parser)
     args = parser.parse_args()

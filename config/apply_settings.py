@@ -7,7 +7,6 @@ and then STOPS. It never clicks Submit: you read the form, fix anything wrong, a
 from config.settings import PROJECT_DIR
 
 # ------------------------------------------------------------------- which jobs
-APPLY_MIN_SCORE = 5        # only jobs scoring at least this
 APPLY_MAX_PER_RUN = 5      # most jobs to open per run
 APPLY_WINDOW_DAYS = 14     # only jobs scraped in the last N days
 

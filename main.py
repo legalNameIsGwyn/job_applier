@@ -26,7 +26,7 @@ from core.job_info import format_salary
 from core.calibration import blend, keyword_score
 
 from config.settings import (
-    DOC_MIN_SCORE, DOC_WINDOW_DAYS, HOURS_OLD, LOCATION, MAKE_DOCS, MAX_CONSECUTIVE_FAILURES,
+    MIN_SCORE, DOC_WINDOW_DAYS, HOURS_OLD, LOCATION, MAKE_DOCS, MAX_CONSECUTIVE_FAILURES,
     MAX_DOCS_PER_RUN, RESULTS_WANTED, SEARCH_TERMS, SITES,
 )
 
@@ -78,7 +78,7 @@ def applicant_reason(row, job: dict) -> str | None:
         return "no applicant count shown"
     return None
 
-def generate_documents(min_score: float = DOC_MIN_SCORE, max_docs: int = MAX_DOCS_PER_RUN,
+def generate_documents(min_score: float = MIN_SCORE, max_docs: int = MAX_DOCS_PER_RUN,
                        days: int = DOC_WINDOW_DAYS) -> int:
     """Create a tailored resume + cover letter for the best-scoring recent jobs.
 
@@ -92,8 +92,8 @@ def generate_documents(min_score: float = DOC_MIN_SCORE, max_docs: int = MAX_DOC
     jobs = get_jobs(1000, "top", min_score=min_score, days=days, include_zero=False)
     jobs = [j for j in jobs if not job_folder(j).exists()]
     print(f"\n[DOCS] {len(jobs)} job(s) scoring {min_score}+ in the last {days} days have no documents yet"
-          + (f"; making the best {max_docs}" if len(jobs) > max_docs else ""))
-    jobs = jobs[:max_docs]
+              + (f"; making the best {max_docs}" if max_docs and len(jobs) > max_docs else ""))
+    jobs = jobs[:max_docs] if max_docs else jobs
 
     created, failures = 0, 0
     for job in jobs:
@@ -119,7 +119,7 @@ async def main(
     results_wanted: int = RESULTS_WANTED,
     hours_old: int = HOURS_OLD,
     make_docs: bool = MAKE_DOCS,
-    doc_min_score: float = DOC_MIN_SCORE,
+    doc_min_score: float = MIN_SCORE,
     max_docs: int = MAX_DOCS_PER_RUN,
 ) -> None:
     """

@@ -23,7 +23,7 @@ from config.settings import DB_PATH
 from db.queries import stats_jobs
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 
-GOOD_SCORE = getattr(_s, "DOC_MIN_SCORE", 6)
+GOOD_SCORE = getattr(_s, "MIN_SCORE", 6)
 MIN_SAMPLE = 5   # below this many applications, say so
 TITLE_BUCKETS = ("python", "backend", "full stack", "fullstack", "frontend", "front end", "data", "devops",
                  "cloud", "qa", "test", "support", "junior", "associate", "intern", "software engineer",
