@@ -32,6 +32,19 @@ Rate your match on a scale of 1-10. Provide:
 Respond with JSON only, using exactly these keys:
 {{"match_score": <number 0-10>, "matched_skills": ["..."], "gaps": ["..."]}}"""
 
+COMPAT_PROMPT = """You are reading one job posting and listing what it asks for. You are not given any applicant's information; do not guess about one.
+
+JOB: {job_title} at {company}
+{description}
+
+List the concrete requirements this posting states, at most {max_requirements}. For each one give:
+- "text": the requirement in under 12 words, using the posting's own words
+- "kind": skill, experience, education, clearance, work_authorization, license_or_certification, or other
+- "required": true if the posting says must, required or minimum; false if it says preferred, nice to have or a plus
+
+Only list what the posting actually states. Merge near-duplicates into one item.
+
+Return JSON: {{"requirements": [{{"text": "...", "kind": "skill", "required": true}}]}}"""
 
 from config.profile_loader import apply_overrides  # noqa: E402
 apply_overrides(globals())

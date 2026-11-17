@@ -43,6 +43,7 @@ def save_job(
     model_score: float | None = None,
     keyword_score: float | None = None,
     duplicate_of: str | None = None,
+    compat: dict | None = None,
 ) -> None:
     """Insert or update one job (stored once) and the active profile's score for it.
 
@@ -51,6 +52,7 @@ def save_job(
     status:        defaults to "scored" or "scoring_failed"; "filtered" and "duplicate" are passed in
     duplicate_of:  with status="duplicate", the job_url of the posting this copies. A duplicate is
                    flagged on the job itself and gets no score row; its real scores aren't overwritten.
+    compat:        core.compat.compute(...) result: pct, detail_pct, missing, capped. Left alone when None.
     """
     failed = score["match_score"] < 0
     status = status or ("scoring_failed" if failed else "scored")
@@ -90,6 +92,11 @@ def save_job(
             matched_skills=json.dumps(list(score.get("matched_skills", []))),
             gaps=json.dumps(list(score.get("gaps", []))),
         )
+        if compat:
+            values.update(
+                compat_pct=compat.get("pct"), compat_detail_pct=compat.get("detail_pct"),
+                compat_missing=json.dumps(list(compat.get("missing", []))), compat_capped=int(bool(compat.get("capped"))),
+            )
         existing = s.scalar(select(JobScore).where(JobScore.job_id == row.id, JobScore.profile_id == pid))
         if existing is None:
             s.add(JobScore(job_id=row.id, profile_id=pid, **values))
@@ -126,4 +133,4 @@ def record_application(job_url: str, status: str, apply_url: str | None = None,
             app.ats = ats or app.ats
             app.note = note or app.note
             app.updated_at = utcnow()
-        return True
+        return True

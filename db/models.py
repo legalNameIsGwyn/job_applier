@@ -61,7 +61,10 @@ class JobScore(Base):
     match_score: Mapped[float] = mapped_column(Float, default=0.0)   # final score; -1 = scoring failed, 0 = rejected
     model_score: Mapped[float | None] = mapped_column(Float)
     keyword_score: Mapped[float | None] = mapped_column(Float)
-    compat_pct: Mapped[float | None] = mapped_column(Float)         # filled in by phase 4
+    compat_pct: Mapped[float | None] = mapped_column(Float)         # rough: matched / (matched + gaps), 0-100
+    compat_detail_pct: Mapped[float | None] = mapped_column(Float)  # detailed: requirement by requirement, 0-100
+    compat_missing: Mapped[str] = mapped_column(Text, default="[]")  # JSON list of {"text", "hard", "required"}
+    compat_capped: Mapped[int] = mapped_column(Integer, default=0)   # 1 = the detailed % was capped by a hard requirement
     matched_skills: Mapped[str] = mapped_column(Text, default="[]")  # JSON list
     gaps: Mapped[str] = mapped_column(Text, default="[]")            # JSON list
     is_retry: Mapped[int] = mapped_column(Integer, default=0)
@@ -151,4 +154,4 @@ class TrackingEvent(Base):
     tracking_id: Mapped[int] = mapped_column(ForeignKey("tracking.id", ondelete="CASCADE"), index=True)
     stage: Mapped[str] = mapped_column(String)
     on_date: Mapped[str] = mapped_column(String)
-    note: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)

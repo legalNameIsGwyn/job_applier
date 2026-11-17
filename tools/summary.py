@@ -22,6 +22,7 @@ import db.tracking as tracking
 from config.settings import DB_PATH
 from db import ratings as R
 from db.queries import application_counts, get_candidates, get_jobs, status_counts, unfinished_applications
+from core.compat import compat_label
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 
 SUMMARY_DAYS = getattr(_settings, "SUMMARY_DAYS", 1)            # how far back "new" reaches
@@ -75,7 +76,9 @@ def _apply_readiness(min_score, days, db_path):
 
 def _job_line(job: dict) -> str:
     salary = f"  [{job['salary']}]" if job.get("salary") else ""
-    return f"  {job['match_score']:>4g}  {job['title'][:45]} - {job['company'][:25]}{salary}"
+    label = compat_label(job)
+    compat = f"  ({label})" if label else ""
+    return f"  {job['match_score']:>4g}  {job['title'][:45]} - {job['company'][:25]}{compat}{salary}"
 
 
 def render_text(d: dict) -> str:

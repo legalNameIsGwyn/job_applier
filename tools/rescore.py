@@ -21,6 +21,7 @@ import argparse
 
 from config.settings import DB_PATH, MAX_CONSECUTIVE_FAILURES
 from core.calibration import blend, keyword_score
+from core.compat import compute as compute_compat
 from core.filters import filter_reason
 from core.scorer import MODEL, score_job
 from db.calibrations import load_calibration
@@ -69,7 +70,9 @@ def rescore(failed_only=False, include_filtered=False, url=None, limit=None, ass
             model = score["match_score"]
             kw = keyword_score(job["title"], job["description"])
             new = blend(model, kw, cal)
-            save_job(job, {**score, "match_score": new}, db_path=db_path, model_score=model, keyword_score=kw)
+            new_score = {**score, "match_score": new}
+            save_job(job, new_score, db_path=db_path, model_score=model, keyword_score=kw,
+                     compat=compute_compat(job, new_score, new))
             streak = 0
             updated += 1
             changes.append((old, new, job["title"], job["company"]))
@@ -108,4 +111,4 @@ if __name__ == "__main__":
     add_profile_arguments(parser)
     args = parser.parse_args()
     apply_profile_arguments(args)
-    rescore(args.failed_only, args.include_filtered, args.url, args.limit, args.yes, args.include_unscored)
+    rescore(args.failed_only, args.include_filtered, args.url, args.limit, args.yes, args.include_unscored)

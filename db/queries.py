@@ -53,7 +53,9 @@ def get_jobs(n: int = 10, order: str = "top", min_score: float | None = None, ma
         col = JobScore.match_score
         q = q.order_by(col.desc() if order == "top" else col.asc(), JobScore.scored_at.desc()).limit(int(n))
         return [dict(id=j.id, title=j.title, company=j.company, location=j.location, job_url=j.job_url,
-                     match_score=sc.match_score, compat_pct=sc.compat_pct, matched_skills=_json_list(sc.matched_skills),
+                     match_score=sc.match_score, compat_pct=sc.compat_pct, compat_detail_pct=sc.compat_detail_pct,
+                     compat_missing=_json_list(sc.compat_missing), compat_capped=bool(sc.compat_capped),
+                     matched_skills=_json_list(sc.matched_skills),
                      gaps=_json_list(sc.gaps), description=j.description, salary=j.salary, apply_url=j.apply_url,
                      scraped_at=str(j.scraped_at)) for j, sc in s.execute(q).all()]
 
@@ -211,4 +213,4 @@ def stats_jobs(since: str | None = None, db_path: str = DB_PATH) -> list[dict]:
                 continue   # never seen by this profile
             out.append(dict(id=j.id, site=j.site, title=j.title, company=j.company, match_score=score,
                             status=status, scraped_at=str(j.scraped_at), job_url=j.job_url))
-        return out
+        return out
