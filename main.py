@@ -14,12 +14,13 @@ import argparse
 
 from config.settings import DB_PATH
 from db.calibrations import load_calibration
-from db.queries import get_jobs
+from db.queries import applied_urls, get_jobs
 from db.repo import FAILED_SCORE, get_scored_urls, init_db, save_job
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 from core.scraper import fill_missing_descriptions, scrape_multiple_terms
 from core.scorer import MODEL, load_resume, score_job
-from documents.application_maker import create_application, job_folder
+from documents.application_maker import choose_mode, create_application, job_folder
+from core.csv_log import csv_path, enabled as csv_enabled, known_urls, log_job
 from core.dedupe import duplicate_gap, load_known
 from core.filters import filter_reason
 from core.job_info import format_salary
@@ -81,19 +82,25 @@ def applicant_reason(row, job: dict) -> str | None:
 
 def generate_documents(min_score: float = MIN_SCORE, max_docs: int = MAX_DOCS_PER_RUN,
                        days: int = DOC_WINDOW_DAYS) -> int:
-    """Create a tailored resume + cover letter for the best-scoring recent jobs.
+    """Create a tailored resume + cover letter for the best-scoring recent jobs, and log each in the CSV.
 
-    Reads from the database (not just this run), so jobs scored in an earlier or
-    interrupted run still get documents. Jobs that already have a folder are
-    skipped by create_application, so this is safe to call on every run.
-    Returns how many job folders were created.
+    Reads from the database (not just this run), so jobs scored in an earlier or interrupted run still
+    get documents. A job already in the applications CSV is skipped. A job that has a folder but no CSV
+    row (made before the CSV existed) just gets its row added. Returns how many folders were created.
     """
-    # Take every qualifying job, drop the ones that already have a folder, THEN apply the
-    # cap. Capping the query itself would keep re-selecting the same already-done top jobs.
+    # Take every qualifying job, drop the ones already handled, THEN apply the cap. Capping the
+    # query itself would keep re-selecting the same already-done top jobs.
     jobs = get_jobs(1000, "top", min_score=min_score, days=days, include_zero=False)
+    logged = known_urls() | applied_urls()
+    jobs = [j for j in jobs if j["job_url"] not in logged]
+
+    rows = 0
+    for j in [j for j in jobs if job_folder(j).exists()]:
+        rows += log_job(j, job_folder(j).name)   # older folder: add its row, mode unknown
     jobs = [j for j in jobs if not job_folder(j).exists()]
+
     print(f"\n[DOCS] {len(jobs)} job(s) scoring {min_score}+ in the last {days} days have no documents yet"
-              + (f"; making the best {max_docs}" if max_docs and len(jobs) > max_docs else ""))
+          + (f"; making the best {max_docs}" if max_docs and len(jobs) > max_docs else ""))
     jobs = jobs[:max_docs] if max_docs else jobs
 
     created, failures = 0, 0
@@ -102,6 +109,7 @@ def generate_documents(min_score: float = MIN_SCORE, max_docs: int = MAX_DOCS_PE
         try:
             if create_application(job):
                 created += 1
+                rows += log_job(job, job_folder(job).name, choose_mode(job)[0])
             failures = 0
         except Exception as e:
             failures += 1
@@ -110,6 +118,8 @@ def generate_documents(min_score: float = MIN_SCORE, max_docs: int = MAX_DOCS_PE
                 print("[DOCS] Too many failures in a row. Is Ollama running? Stopping.")
                 break
     print(f"[DOCS] {created} new application folder(s) created")
+    if csv_enabled():
+        print(f"[CSV] {rows} row(s) added to {csv_path()}")
     return created
 
 
@@ -216,8 +226,8 @@ async def main(
     # Step 4: Score each job and save it immediately
     results = []
     consecutive_failures = 0
-    known = load_known()   # jobs already scored, to spot the same posting listed againposting listed again
-    cal = load_calibration()          # read once, not once per job   # jobs already scored, to spot the same posting listed again
+    known = load_known()      # jobs already scored, to spot the same posting listed again
+    cal = load_calibration()  # read once, not once per job
     duplicates = 0
 
     for i, (_, row) in enumerate(todo.iterrows(), start=1):
@@ -299,4 +309,4 @@ if __name__ == "__main__":
         site_names=SITES,
         search_term=SEARCH_TERMS,
         location=LOCATION,
-    ))
+    ))

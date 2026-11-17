@@ -29,8 +29,12 @@ def known_urls(path: Path | None = None) -> set[str]:
     path = path or csv_path()
     if not enabled() or not path.exists():
         return set()
-    with open(path, newline="", encoding="utf-8-sig") as f:
-        return {row.get("job_url", "") for row in csv.DictReader(f)} - {""}
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            return {row.get("job_url", "") for row in csv.DictReader(f)} - {""}
+    except (OSError, csv.Error, UnicodeDecodeError) as e:
+        print(f"[CSV] Could not read {path.name} ({e}); treating it as empty.")
+        return set()
 
 
 def _compat(job: dict) -> str:
@@ -63,4 +67,20 @@ def log_job(job: dict, folder_name: str, mode: str = "", path: Path | None = Non
     except PermissionError:
         print(f"[CSV] Could not write {path.name}. Is it open in Excel? Close it; the row is added on the next run.")
         return False
+    except OSError as e:
+        print(f"[CSV] Could not write {path.name}: {e}")
+        return False
     return True
+
+def handled_urls(path: Path | None = None) -> set[str]:
+    """job_urls whose status cell is not blank: you (or a past run) already dealt with them."""
+    path = path or csv_path()
+    if not enabled() or not path.exists():
+        return set()
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            return {row["job_url"] for row in csv.DictReader(f)
+                    if (row.get("status") or "").strip() and row.get("job_url")}
+    except (OSError, csv.Error, UnicodeDecodeError) as e:
+        print(f"[CSV] Could not read {path.name} ({e}); treating it as empty.")
+        return set()

@@ -73,6 +73,11 @@ def get_job_by_url(url: str, db_path: str = DB_PATH) -> dict | None:
                     compat_missing=_json_list(sc.compat_missing) if sc else [], compat_capped=bool(sc and sc.compat_capped),
                     gaps=_json_list(sc.gaps) if sc else [])
 
+def applied_urls(db_path: str = DB_PATH) -> set[str]:
+    """job_urls the bot already applied to (an applications row with status 'applied')."""
+    with session_scope(db_path) as s:
+        return set(s.scalars(select(Job.job_url).join(Application, Application.job_id == Job.id)
+                             .where(Application.status == "applied", Job.job_url.is_not(None))).all())
 
 def get_candidates(min_score: float, days: float, include_opened: bool = False, url: str | None = None,
                    db_path: str = DB_PATH) -> list[dict]:
