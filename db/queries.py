@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import and_, exists, func, or_, select
 
 from config.settings import DB_PATH
+from core.csv_log import handled_urls
 from db.models import Application, Job, JobScore, utcnow
 from db.session import current_profile_id, session_scope
 
@@ -94,9 +95,14 @@ def get_candidates(min_score: float, days: float, include_opened: bool = False, 
                         JobScore.scored_at >= _since(days), Job.is_duplicate.is_(False),
                         or_(fresh, Application.status == "opened") if include_opened else fresh)
             q = q.order_by(JobScore.match_score.desc())
-        return [dict(title=j.title, company=j.company, location=j.location, job_url=j.job_url,
+        rows = [dict(title=j.title, company=j.company, location=j.location, job_url=j.job_url,
                      description=j.description, match_score=score or 0.0, apply_url=j.apply_url, site=j.site)
-                for j, score in s.execute(q).all()]
+                for j, score in s.execute(q).all()]        
+        if url:
+            return rows    # you named this job yourself with --url, so no skipping
+        handled = handled_urls()
+        return [r for r in rows if r["job_url"] not in handled]
+        
 
 
 def clear_missing_link_markers(markers, db_path: str = DB_PATH) -> int:
