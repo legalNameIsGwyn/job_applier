@@ -84,3 +84,37 @@ def handled_urls(path: Path | None = None) -> set[str]:
     except (OSError, csv.Error, UnicodeDecodeError) as e:
         print(f"[CSV] Could not read {path.name} ({e}); treating it as empty.")
         return set()
+
+def sync_statuses(labels: dict[str, str], path: Path | None = None, dry_run: bool = False) -> list[tuple[str, str]]:
+    """Fill BLANK status cells. labels maps job_url -> text. Never overwrites a cell you filled.
+
+    Returns the (job_url, text) pairs filled (or that would be, with dry_run).
+    """
+    path = path or csv_path()
+    if not enabled() or not path.exists():
+        return []
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fields = list(reader.fieldnames or [])
+        rows = list(reader)
+    if "status" not in fields:
+        return []
+    changed = []
+    for row in rows:
+        url = row.get("job_url")
+        if url in labels and not (row.get("status") or "").strip():
+            row["status"] = labels[url]
+            changed.append((url, labels[url]))
+    if changed and not dry_run:
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            with open(tmp, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerows(rows)
+            tmp.replace(path)
+        except PermissionError:
+            tmp.unlink(missing_ok=True)
+            print(f"[CSV] Could not write {path.name}. Is it open in Excel? Close it and run again.")
+            return []
+    return changed
