@@ -26,11 +26,10 @@ CLOSED_TEXT = re.compile(
     re.IGNORECASE,
 )
 
-
 def closed_in_text(text: str) -> bool:
-    """True if page text says the posting is closed."""
-    return bool(CLOSED_TEXT.search(text or ""))
-
+    """True if page text says the posting is closed (scripts, styles and comments are ignored)."""
+    text = re.sub(r"(?is)<(script|style|noscript)\b.*?</\1\s*>|<!--.*?-->", " ", text or "")
+    return bool(CLOSED_TEXT.search(text))
 
 def _get(url: str, get=None):
     get = get or (requests.get if requests else None)
