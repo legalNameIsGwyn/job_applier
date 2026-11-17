@@ -117,5 +117,11 @@ HARD_REQ_KINDS = ("clearance", "work_authorization", "license_or_certification")
 
 MAX_BRIDGE_LINES = 2      # bridge lines proposed per job
 
+# Tailoring mode: "auto", "standard", "bridge" or "boilerplate".
+# auto picks one per job from its compatibility percentage.
+TAILOR_MODE = "auto"
+TAILOR_AUTO_BRIDGE_BELOW = 70       # compatibility under this uses bridge
+TAILOR_AUTO_BOILERPLATE_BELOW = 30  # compatibility under this uses boilerplate
+
 from config.profile_loader import apply_overrides  # noqa: E402
 apply_overrides(globals())

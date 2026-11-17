@@ -143,5 +143,37 @@ For up to {max_lines} of those requirements, write ONE sentence that ties someth
 
 Return JSON: {{"bridges": [{{"requirement": "...", "source": "...", "line": "..."}}]}}"""
 
+# Added to the letter prompt in bridge mode. {bridge_lines} = the approved lines, one per row.
+LETTER_BRIDGE_RULE = (
+    "Work these bridge lines into paragraph 2. Each ties something real from my resume to something this job asks "
+    "for that I do not have. Keep the facts exactly as written; light rewording is fine. Never say I have the "
+    "missing requirement.\n{bridge_lines}\n"
+)
+# Added to the resume tailoring prompt in bridge mode. {bridge} = the first bridge line.
+SUMMARY_BRIDGE_RULE = (
+    "Also work this real connection into the summary in one short clause, without using \"I\": {bridge}\n"
+)
+
+# For jobs far from your background. The posting is deliberately not included, so nothing is claimed about the job.
+# Placeholders: {name} {resume_facts} {job_title} {company} {truth_rules} {authorization_line} {style_rules}
+BOILERPLATE_LETTER_PROMPT = """Write the BODY of a short cover letter for a {job_title} job at {company}, in first person, as {name}.
+
+RESUME DATA:
+{resume_facts}
+
+{truth_rules}
+
+Requirements:
+- Exactly 2 short paragraphs, 120 words or fewer in total.
+- Paragraph 1: interest in this role at this company, and one or two strengths from the resume that carry over to most jobs, each backed by a real example from the resume.
+- Paragraph 2: a brief, confident close that invites a conversation.
+- Use the exact job title "{job_title}" and the company name "{company}" once each.
+- You were not given the job posting, so do not describe what the job involves and do not claim anything about the company.
+{authorization_line}- Do NOT include a greeting ("Dear ..."), a sign-off, the name, a date or any placeholder in brackets.
+
+{style_rules}
+
+Return JSON: {{"paragraphs": ["...", "..."]}}"""
+
 from config.profile_loader import apply_overrides  # noqa: E402
 apply_overrides(globals())
