@@ -36,5 +36,7 @@
       "description": "",
       "skills": ["First skill"]
     }
-  ]
+  ],
+  "interests": ["helping people learn new tools"],
+  "transferable_experience": ["daily contact with the employees who used the internal tools I maintained"],
 }

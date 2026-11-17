@@ -115,5 +115,7 @@ COMPAT_DETAIL = True      # the extra model call for jobs at or above MIN_SCORE
 HARD_REQ_CAP = 60         # detailed % is capped here when a hard requirement is missing
 HARD_REQ_KINDS = ("clearance", "work_authorization", "license_or_certification")
 
+MAX_BRIDGE_LINES = 2      # bridge lines proposed per job
+
 from config.profile_loader import apply_overrides  # noqa: E402
 apply_overrides(globals())
