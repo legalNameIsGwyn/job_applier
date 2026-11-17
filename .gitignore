@@ -8,7 +8,8 @@ backup_before_fix_imports_*.zip
 profiles/*/resume.json
 !profiles/_generic/resume.json
 profiles/*/applications/
-profiles\lomita-software
+profiles/lomita-software
+profiles/*/applications.csv
 
 # Python
 __pycache__/
