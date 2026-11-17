@@ -13,6 +13,14 @@ Usage (from the project folder):
     python -m documents.application_maker --top 5 --profile it_support
     python -m documents.application_maker --url <job url> --bridges-only                     # show proposed bridge lines
     python -m documents.application_maker --url <job url> --bridges-only --suggest-bridges   # accept, edit or skip each one
+    python -m documents.application_maker --url <job url> --mode bridge --suggest-bridges   # check each bridge line first
+    python -m documents.application_maker --url <job url> --bridges-only                     # only show proposed bridge lines
+
+Modes (TAILOR_MODE in config/settings.py; "auto" picks one per job from its compatibility percentage):
+    standard     the posting's wording, your real skills and projects
+    bridge       also connects real experience to requirements you lack, one honest sentence each
+    boilerplate  your resume as written plus a short general letter, for jobs far from your background
+    
 
 Output goes to the applications folder (APPLICATIONS_DIR in config/settings.py), one
 subfolder per job: a resume, a cover letter and notes.txt (job link plus anything to
@@ -43,9 +51,9 @@ from config.settings import (
     WRITING_TEMPERATURE,
 )
 from config.writing_style import (
-    BRIDGE_PROMPT, LETTER_AUTHORIZATION_RULE, LETTER_AVAILABILITY_CLAUSE, LETTER_KEYWORD_RULE, LETTER_PROMPT,
-    LETTER_STRUCTURE, LETTER_WARN_WORDS, LETTER_YEARS_RULE, SLOP_PATTERNS, STYLE_RULES, SUMMARY_YEARS_RULE,
-    TAILOR_PROMPT, TRUTH_RULES,
+    BOILERPLATE_LETTER_PROMPT, BRIDGE_PROMPT, LETTER_AUTHORIZATION_RULE, LETTER_AVAILABILITY_CLAUSE,
+    LETTER_BRIDGE_RULE, LETTER_KEYWORD_RULE, LETTER_PROMPT, LETTER_STRUCTURE, LETTER_WARN_WORDS, LETTER_YEARS_RULE,
+    SLOP_PATTERNS, STYLE_RULES, SUMMARY_BRIDGE_RULE, SUMMARY_YEARS_RULE, TAILOR_PROMPT, TRUTH_RULES,
 )
 from core.compat import compat_label, missing_label
 from core.filters import years_shortfall
@@ -54,6 +62,10 @@ from db.queries import get_job_by_url, get_jobs
 from db.session import add_profile_arguments, apply_profile_arguments
 
 OUTPUT_DIR = Path(APPLICATIONS_DIR)
+MODES = ("standard", "bridge", "boilerplate")
+TAILOR_MODE = getattr(_settings, "TAILOR_MODE", "auto")
+BRIDGE_BELOW = getattr(_settings, "TAILOR_AUTO_BRIDGE_BELOW", 70)            # auto: compatibility % under this -> bridge
+BOILERPLATE_BELOW = getattr(_settings, "TAILOR_AUTO_BOILERPLATE_BELOW", 30)  # auto: under this -> boilerplate
 MAX_BRIDGE_LINES = getattr(_settings, "MAX_BRIDGE_LINES", 2)
 
 TAILOR_SCHEMA = {
@@ -194,6 +206,28 @@ def _fill(template_name: str, template: str, **values) -> str:
             "Write a literal brace as {{ or }}."
         ) from None
 
+# ------------------------------------------------------------------------------- bridges
+# A bridge is one honest sentence that ties something real on your resume to a requirement the posting
+# asks for and you lack ("I supported end users daily as a full stack developer"). It never claims the
+# requirement itself. Hard requirements (clearance, work authorization, licenses) are never bridged.
+
+def choose_mode(job: dict, requested: str | None = None) -> tuple[str, str]:
+    """(mode, why). requested is the --mode flag; otherwise TAILOR_MODE. "auto" decides from the compatibility %."""
+    wanted = (requested or TAILOR_MODE or "auto").strip().lower()
+    if wanted in MODES:
+        return wanted, "chosen"
+    if wanted != "auto":
+        raise ValueError(f"TAILOR_MODE must be auto, standard, bridge or boilerplate (got {wanted!r}).")
+    pct = job.get("compat_detail_pct")
+    if pct is None:
+        pct = job.get("compat_pct")
+    if pct is None:
+        return "standard", "auto: no compatibility percentage for this job"
+    if pct >= BRIDGE_BELOW:
+        return "standard", f"auto: compatibility {pct:g}%"
+    if pct >= BOILERPLATE_BELOW:
+        return "bridge", f"auto: compatibility {pct:g}%"
+    return "boilerplate", f"auto: compatibility {pct:g}%"
 
 def _resume_facts(resume: dict, extras: bool = False) -> str:
     """Compact, duplicate-free view of the resume for prompts (and for number checking).
@@ -229,12 +263,6 @@ def _resume_facts(resume: dict, extras: bool = False) -> str:
         facts["interests"] = resume.get("interests", [])
         facts["transferable_experience"] = resume.get("transferable_experience", [])
     return json.dumps({k: v for k, v in facts.items() if v}, indent=1)
-
-# ------------------------------------------------------------------------------- bridges
-# A bridge is one honest sentence that ties something real on your resume to a requirement the posting
-# asks for and you lack ("I supported end users daily as a full stack developer"). It never claims the
-# requirement itself. Hard requirements (clearance, work authorization, licenses) are never bridged.
-
 
 def bridgeable_gaps(job: dict) -> list[str]:
     """Requirements worth bridging: the detailed check's missing list without hard blockers, else the model's gaps."""
@@ -312,8 +340,15 @@ def review_bridges(bridges: list[dict], ask=input) -> list[dict]:
                     break
     return kept
 
-def tailor_resume(job: dict, resume: dict) -> dict:
-    """Ask the model how to emphasize the resume for this job, then validate its choices."""
+def tailor_resume(job: dict, resume: dict, mode: str = "standard", bridges: list | None = None) -> dict:
+    """Ask the model how to emphasize the resume for this job, then validate its choices.
+
+    boilerplate mode skips the model: your summary, skills and first projects exactly as written.
+    """
+    if mode == "boilerplate":
+        return {"summary": resume.get("summary", ""), "skills": list(resume.get("skills", [])),
+                "project_names": [p["name"] for p in resume.get("projects", [])][:MAX_PROJECTS]}
+    
     prompt = _fill(
         "TAILOR_PROMPT", TAILOR_PROMPT,
         resume_facts=_resume_facts(resume), job_title=job["title"], company=job["company"],
@@ -321,6 +356,10 @@ def tailor_resume(job: dict, resume: dict) -> dict:
         truth_rules=TRUTH_RULES, max_skills=TAILOR_MAX_SKILLS, max_projects=MAX_PROJECTS,
         years_rule=_fill("SUMMARY_YEARS_RULE", SUMMARY_YEARS_RULE) if years_shortfall(job.get("description")) else "",
     )
+
+    if mode == "bridge" and bridges:
+        prompt += "\n\n" + _fill("SUMMARY_BRIDGE_RULE", SUMMARY_BRIDGE_RULE, bridge=bridges[0]["line"])
+
     raw = _ask(prompt, TAILOR_SCHEMA)
 
     summary = clean_style(str(raw.get("summary", "")))
@@ -387,12 +426,18 @@ def _parse_letter(raw: dict) -> list[str]:
     return paragraphs
 
 
-def write_cover_letter(job: dict, resume: dict) -> tuple[list[str], list[str]]:
-    """Return (body paragraphs, warnings). Greeting and sign-off are added in code."""
+def write_cover_letter(job: dict, resume: dict, mode: str = "standard",
+                       bridges: list | None = None) -> tuple[list[str], list[str]]:
+    """Return (body paragraphs, warnings). Greeting and sign-off are added in code.
+
+    bridge adds your bridge lines to the prompt; boilerplate writes a short general letter from the resume alone.
+    """
+
     job_text = f"{job['title']}\n{job.get('description') or ''}"
     keywords = matched_skills(job_text, resume.get("skills", []))[:6]
     keyword_rule = _fill("LETTER_KEYWORD_RULE", LETTER_KEYWORD_RULE, keywords=", ".join(keywords)) if keywords else ""
     auth = resume.get("work_authorization")
+
     availability_clause = (
         _fill("LETTER_AVAILABILITY_CLAUSE", LETTER_AVAILABILITY_CLAUSE, availability=resume["availability"].lower())
         if resume.get("availability") else ""
@@ -404,6 +449,7 @@ def write_cover_letter(job: dict, resume: dict) -> tuple[list[str], list[str]]:
     )
     short = years_shortfall(job.get("description"))
     years_rule = _fill("LETTER_YEARS_RULE", LETTER_YEARS_RULE, asked=short[0], have=f"{short[1]:g}") if short else ""
+    
     prompt = _fill(
         "LETTER_PROMPT", LETTER_PROMPT,
         name=resume["name"], resume_facts=_resume_facts(resume), job_title=job["title"], company=job["company"],
@@ -411,11 +457,26 @@ def write_cover_letter(job: dict, resume: dict) -> tuple[list[str], list[str]]:
         truth_rules=TRUTH_RULES, letter_structure=LETTER_STRUCTURE, keyword_rule=keyword_rule,
         authorization_rule=authorization_rule, style_rules=STYLE_RULES, years_rule=years_rule,
     )
+
+    paragraph_count = 3
+    if mode == "boilerplate":
+        paragraph_count = 2
+        auth_line = (f"- In paragraph 2, say in one short sentence that I am a {auth}{availability_clause}.\n"
+                     if auth else "")
+        prompt = _fill(
+            "BOILERPLATE_LETTER_PROMPT", BOILERPLATE_LETTER_PROMPT,
+            name=resume["name"], resume_facts=_resume_facts(resume), job_title=job["title"], company=job["company"],
+            truth_rules=TRUTH_RULES, authorization_line=auth_line, style_rules=STYLE_RULES,
+        )
+    elif mode == "bridge" and bridges:
+        prompt += "\n\n" + _fill("LETTER_BRIDGE_RULE", LETTER_BRIDGE_RULE,
+                                  bridge_lines="\n".join(f"- {b['line']}" for b in bridges))
+
     try:
         paragraphs = _parse_letter(_ask(prompt, LETTER_SCHEMA))
     except ValueError:  # unusable shape: ask once more, spelling out the format
         paragraphs = _parse_letter(_ask(
-            prompt + '\n\nReturn JSON with a "paragraphs" array holding exactly 3 separate strings, '
+            prompt + '\n\nReturn JSON with a "paragraphs" array holding exactly {paragraph_count} separate strings, '
                      "one per paragraph.", LETTER_SCHEMA))
 
     # If the draft still sounds like AI, ask once more, naming exactly what to remove.
@@ -435,10 +496,13 @@ def write_cover_letter(job: dict, resume: dict) -> tuple[list[str], list[str]]:
     text = " ".join(paragraphs)
     warnings = []
     leftover = slop_flags(text)
+
     if leftover:
         warnings.append("Cover letter may still sound like AI writing (" + "; ".join(leftover) + "). Consider rewording.")
-    allowed = _resume_facts(resume) + " " + job["title"] + " " + (job.get("description") or "")
+
+    allowed = _resume_facts(resume, extras=True) + " " + job["title"] + " " + (job.get("description") or "")
     bad = unsupported_numbers(text, allowed)
+
     if bad:
         warnings.append(f"Cover letter mentions numbers not found in your resume or the job post: {', '.join(bad)}. Verify or remove.")
     if len(text.split()) > LETTER_WARN_WORDS:
@@ -639,8 +703,11 @@ def job_folder(job: dict, out_root: Path = OUTPUT_DIR) -> Path:
     return Path(out_root) / render_name(APPLICATION_FOLDER, name_fields(load_resume(), job))
 
 
-def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = False) -> Path | None:
+def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = False,
+                       mode: str | None = None, review: bool = False) -> Path | None:
     """Create the resume, cover letter (.docx) and notes.txt for one job.
+
+        mode: standard | bridge | boilerplate | auto; None uses TAILOR_MODE. review: check each bridge line yourself first.
 
     Returns the folder, or None if it already existed (and force is False).
     """
@@ -656,8 +723,23 @@ def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = Fal
     resume_file = f"{render_name(RESUME_FILENAME, fields)}.docx"
     letter_file = f"{render_name(COVER_LETTER_FILENAME, fields)}.docx"
 
-    tailored = tailor_resume(job, resume)
-    paragraphs, warnings = write_cover_letter(job, resume)
+    mode, why = choose_mode(job, mode)
+    bridges = []
+    if mode == "bridge":
+        try:
+            bridges = suggest_bridges(job, resume)
+        except Exception as e:
+            print(f"[BRIDGE] Could not propose bridge lines ({e}); writing the standard letter.")
+        if review and bridges:
+            bridges = review_bridges(bridges)
+    print(f"[APPLY] Mode: {mode} ({why})")
+    for b in bridges:
+        print(f"[BRIDGE] {b['requirement']}: {b['line']}")
+    if mode == "bridge" and not bridges:
+        print("[BRIDGE] Nothing on the resume honestly connects to this job's gaps, so the standard letter is used.")
+
+    tailored = tailor_resume(job, resume, mode, bridges)
+    paragraphs, warnings = write_cover_letter(job, resume, mode, bridges)
 
     is_new_folder = not folder.exists()
     folder.mkdir(parents=True, exist_ok=True)
@@ -681,6 +763,7 @@ def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = Fal
         f"Match score: {job.get('match_score', 'n/a')}",
         *([f"Compatibility: {compat_label(job)}"] if compat_label(job) else []),
         *([f"Missing requirements: {missing_label(job)}"] if missing_label(job) else []),
+        f"Mode:        {mode} ({why})",
         f"Apply here:  {job.get('job_url', '')}",
         *([f"Years gap:    posting asks {short[0]}+, you have about {short[1]:g}. The letter and resume summary "
            "lead with your skills and willingness to learn instead."] if (short := years_shortfall(job.get("description"))) else []),
@@ -691,6 +774,8 @@ def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = Fal
         "  (only add these to your resume if you really have them)",
         *([f"- Posting skills your letter doesn't mention: {', '.join(unused)}"] if unused else []),
         "",
+        *(["", "Bridge lines used (each ties something real to a requirement you lack; check it is true):",
+        *[f"- {b['requirement']}: {b['line']}  [from: {b['source']}]" for b in bridges]] if bridges else []),
         "Review before sending:",
         "- Read the cover letter; the model can be wrong or generic.",
         *[f"- WARNING: {w}" for w in warnings],
@@ -709,8 +794,9 @@ if __name__ == "__main__":
     p.add_argument("--min-score", type=float, default=6, help="with --top: minimum score (default 6)")
     p.add_argument("--days", type=int, help="with --top: only jobs scored in the last N days")
     p.add_argument("--force", action="store_true", help="regenerate even if the folder exists")
+    p.add_argument("--mode", choices=("auto",) + MODES, help="tailoring mode (default: TAILOR_MODE in config/settings.py)")
     p.add_argument("--suggest-bridges", action="store_true",
-                   help="accept, edit or skip each proposed bridge line (implies --bridges-only for now)")
+                   help="check each proposed bridge line before it is used (uses bridge mode unless --mode says otherwise)")
     p.add_argument("--bridges-only", action="store_true", help="only show the proposed bridge lines; make no documents")
     add_profile_arguments(p)
     args = p.parse_args()
@@ -726,7 +812,7 @@ if __name__ == "__main__":
     else:
         raise SystemExit("Use --top N or --url JOB_URL (see --help).")
 
-    if args.bridges_only or args.suggest_bridges:
+    if args.bridges_only:
         resume = load_resume()
         for job in jobs:
             print(f"\n[BRIDGE] {job['title'][:50]} - {job['company'][:30]}")
@@ -738,13 +824,15 @@ if __name__ == "__main__":
             if not found:
                 print("[BRIDGE] Nothing on the resume honestly connects to this job's gaps.")
         raise SystemExit(0)
+    
+    mode = args.mode or ("bridge" if args.suggest_bridges else None)
 
     print(f"[APPLY] {len(jobs)} job(s), model: {MODEL}")
     made, failures = 0, 0
     for job in jobs:
         print(f"\n[APPLY] {job['title'][:50]} - {job['company'][:30]}")
         try:
-            if create_application(job, force=args.force):
+            if create_application(job, force=args.force, mode=mode, review=args.suggest_bridges):
                 made += 1
             failures = 0
         except Exception as e:
