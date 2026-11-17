@@ -19,6 +19,7 @@ import argparse
 import textwrap
 
 from config.settings import SHOW_DEFAULT_COUNT
+from core.compat import compat_label, missing_label
 from db.queries import get_jobs
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 
@@ -34,7 +35,7 @@ def show_jobs(n: int = 10, order: str = "top", full: bool = False, **filters) ->
 
     print(f"\n{label} {len(jobs)} jobs (profile: {active_profile_name()})\n" + "=" * 60)
     for i, j in enumerate(jobs, start=1):
-        compat = f"  compat {j['compat_pct']:g}%" if j.get("compat_pct") is not None else ""
+        compat = f"  compat {compat_label(j)}" if compat_label(j) else ""
         print(f"\n{i}. #{j['id']} [{j['match_score']:g}/10]{compat} {j['title']} - {j['company']}")
         print(f"   {j['location']}  (scraped {j['scraped_at']})")
         print(f"   {j['job_url']}")
@@ -42,6 +43,8 @@ def show_jobs(n: int = 10, order: str = "top", full: bool = False, **filters) ->
             print(f"   Matched: {', '.join(j['matched_skills'])}")
         if j["gaps"]:
             print(f"   Gaps:    {', '.join(j['gaps'])}")
+        if missing_label(j):
+            print(f"   Missing: {missing_label(j)}")
         if full and j["description"]:
             print("   Description:")
             print(textwrap.indent(textwrap.fill(j["description"][:1500], 90), "     "))

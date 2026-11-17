@@ -43,6 +43,7 @@ from config.writing_style import (
     LETTER_AUTHORIZATION_RULE, LETTER_AVAILABILITY_CLAUSE, LETTER_KEYWORD_RULE, LETTER_PROMPT, LETTER_STRUCTURE,
     LETTER_WARN_WORDS, LETTER_YEARS_RULE, SLOP_PATTERNS, STYLE_RULES, SUMMARY_YEARS_RULE, TAILOR_PROMPT, TRUTH_RULES,
 )
+from core.compat import compat_label, missing_label
 from core.filters import years_shortfall
 from core.scorer import MODEL, client, extract_json, load_resume
 from db.queries import get_job_by_url, get_jobs
@@ -571,6 +572,8 @@ def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = Fal
         f"{job['title']} - {job['company']}",
         f"Location:    {job.get('location', '')}",
         f"Match score: {job.get('match_score', 'n/a')}",
+        *([f"Compatibility: {compat_label(job)}"] if compat_label(job) else []),
+        *([f"Missing requirements: {missing_label(job)}"] if missing_label(job) else []),
         f"Apply here:  {job.get('job_url', '')}",
         *([f"Years gap:    posting asks {short[0]}+, you have about {short[1]:g}. The letter and resume summary "
            "lead with your skills and willingness to learn instead."] if (short := years_shortfall(job.get("description"))) else []),

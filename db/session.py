@@ -47,6 +47,26 @@ def create_tables(engine) -> None:
             '$env:JOBS_DB = "$PWD\\data\\jobs_db_new.sqlite"   (or finish the switch-over).'
         )
     Base.metadata.create_all(engine)
+    _add_missing_columns(engine)
+
+
+# Columns added after a table was first created. create_all() never alters an existing table, so they are added here.
+_NEW_COLUMNS = {
+    "job_scores": {
+        "compat_detail_pct": "FLOAT",
+        "compat_missing": "TEXT DEFAULT '[]'",
+        "compat_capped": "INTEGER DEFAULT 0",
+    },
+}
+
+
+def _add_missing_columns(engine) -> None:
+    with engine.begin() as conn:
+        for table, columns in _NEW_COLUMNS.items():
+            have = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            for name, ddl in columns.items():
+                if name not in have:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
 @contextmanager

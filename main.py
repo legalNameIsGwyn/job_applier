@@ -24,6 +24,7 @@ from core.dedupe import duplicate_gap, load_known
 from core.filters import filter_reason
 from core.job_info import format_salary
 from core.calibration import blend, keyword_score
+from core.compat import compute as compute_compat, describe as describe_compat
 
 from config.settings import (
     MIN_SCORE, DOC_WINDOW_DAYS, HOURS_OLD, LOCATION, MAKE_DOCS, MAX_CONSECUTIVE_FAILURES,
@@ -246,17 +247,20 @@ async def main(
             model_score = score["match_score"]
             keyword = keyword_score(job["title"], job["description"])
             score = {**score, "match_score": blend(model_score, keyword, cal)}
+            compat = compute_compat(job, score, score["match_score"])
             consecutive_failures = 0
         except Exception as e:
             print(f"[SCORER] Failed on '{job['title']}': {e}")
             score = {"match_score": FAILED_SCORE, "matched_skills": [], "gaps": ["scoring failed"]}
-            model_score = keyword = None
+            model_score = keyword = compat = None
             consecutive_failures += 1
 
-        save_job(job, score, model_score=model_score, keyword_score=keyword)
+        save_job(job, score, model_score=model_score, keyword_score=keyword, compat=compat)
 
         if score["match_score"] >= 0:
             print(f"[SCORER] Score: {score['match_score']}  (model {model_score:g}, keywords {keyword:g})")
+            if compat and describe_compat(compat):
+                print(f"[COMPAT] {describe_compat(compat)}")
             results.append((score["match_score"], job))
             known.add(job)
 
@@ -295,4 +299,4 @@ if __name__ == "__main__":
         site_names=SITES,
         search_term=SEARCH_TERMS,
         location=LOCATION,
-    ))
+    ))

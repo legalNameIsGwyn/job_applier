@@ -111,5 +111,9 @@ SUMMARY_DIR = PROJECT_DIR / "data" / "reports"   # optional: where --html report
 RATING_CARD_WIDTH = None       # None = fit the terminal; or a number like 90
 RATING_CARD_MAX_WIDTH = 100    # cap used when RATING_CARD_WIDTH is None
 
+COMPAT_DETAIL = True      # the extra model call for jobs at or above MIN_SCORE
+HARD_REQ_CAP = 60         # detailed % is capped here when a hard requirement is missing
+HARD_REQ_KINDS = ("clearance", "work_authorization", "license_or_certification")
+
 from config.profile_loader import apply_overrides  # noqa: E402
 apply_overrides(globals())
