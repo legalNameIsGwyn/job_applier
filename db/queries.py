@@ -74,11 +74,17 @@ def get_job_by_url(url: str, db_path: str = DB_PATH) -> dict | None:
                     compat_missing=_json_list(sc.compat_missing) if sc else [], compat_capped=bool(sc and sc.compat_capped),
                     gaps=_json_list(sc.gaps) if sc else [])
 
-def applied_urls(db_path: str = DB_PATH) -> set[str]:
-    """job_urls the bot already applied to (an applications row with status 'applied')."""
+def application_statuses(statuses=("applied", "closed"), db_path: str = DB_PATH) -> dict[str, str]:
+    """{job_url: status} for jobs with an applications row in one of these statuses."""
     with session_scope(db_path) as s:
-        return set(s.scalars(select(Job.job_url).join(Application, Application.job_id == Job.id)
-                             .where(Application.status == "applied", Job.job_url.is_not(None))).all())
+        rows = s.execute(select(Job.job_url, Application.status).join(Application, Application.job_id == Job.id)
+                         .where(Application.status.in_(statuses), Job.job_url.is_not(None))).all()
+        return {url: status for url, status in rows}
+
+
+def applied_urls(db_path: str = DB_PATH) -> set[str]:
+    """job_urls the bot already applied to or found closed: no documents are needed for these."""
+    return set(application_statuses(db_path=db_path))
 
 def get_candidates(min_score: float, days: float, include_opened: bool = False, url: str | None = None,
                    db_path: str = DB_PATH) -> list[dict]:
