@@ -113,5 +113,35 @@ LETTER_AUTHORIZATION_RULE = (
 )
 LETTER_AVAILABILITY_CLAUSE = " and available for an {availability}"  # {availability} from resume.json
 
+# ------------------------------------------------------------------ bridge lines
+# A bridge is one honest sentence that ties something real on the resume to a requirement the posting asks for
+# and the resume lacks. It never claims the requirement itself.
+
+# Placeholders: {resume_facts} {job_title} {company} {description} {missing} {truth_rules} {style_rules} {max_lines}
+# {resume_facts} here also holds "interests" and "transferable_experience" from resume.json. Phrases listed under
+# transferable_experience are facts about you; use them (reworded if needed) before reaching for anything else.
+BRIDGE_PROMPT = """You help a job seeker connect real experience to a job that asks for things the resume does not show.
+
+RESUME DATA:
+{resume_facts}
+
+JOB: {job_title} at {company}
+{description}
+
+REQUIREMENTS THE RESUME DOES NOT COVER:
+{missing}
+
+{truth_rules}
+
+For up to {max_lines} of those requirements, write ONE sentence that ties something real from the resume (a role, a project, a transferable-experience phrase, a certification or an interest) to what the requirement is for.
+- Never claim the requirement itself. Say what I actually did and why it is relevant.
+- "source" is the role, project, phrase or interest the sentence comes from, copied exactly from the resume data.
+- First person, plain words, active voice, under 30 words.
+- Skip a requirement when nothing in the resume honestly connects to it. Returning fewer lines, or none, is fine.
+
+{style_rules}
+
+Return JSON: {{"bridges": [{{"requirement": "...", "source": "...", "line": "..."}}]}}"""
+
 from config.profile_loader import apply_overrides  # noqa: E402
 apply_overrides(globals())

@@ -11,6 +11,8 @@ Usage (from the project folder):
     python -m documents.application_maker --url https://www.linkedin.com/jobs/view/123...
     python -m documents.application_maker --top 5 --force          # regenerate existing ones
     python -m documents.application_maker --top 5 --profile it_support
+    python -m documents.application_maker --url <job url> --bridges-only                     # show proposed bridge lines
+    python -m documents.application_maker --url <job url> --bridges-only --suggest-bridges   # accept, edit or skip each one
 
 Output goes to the applications folder (APPLICATIONS_DIR in config/settings.py), one
 subfolder per job: a resume, a cover letter and notes.txt (job link plus anything to
@@ -33,6 +35,7 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
 
 import config.keywords as _keywords
+import config.settings as _settings
 from config.keywords import COMMON_TERMS, SKILL_ALIASES
 from config.settings import (
     APPLICATION_FOLDER, APPLICATIONS_DIR, COVER_LETTER_FILENAME, COVER_LETTER_GREETING, COVER_LETTER_SIGN_OFF,
@@ -40,8 +43,9 @@ from config.settings import (
     WRITING_TEMPERATURE,
 )
 from config.writing_style import (
-    LETTER_AUTHORIZATION_RULE, LETTER_AVAILABILITY_CLAUSE, LETTER_KEYWORD_RULE, LETTER_PROMPT, LETTER_STRUCTURE,
-    LETTER_WARN_WORDS, LETTER_YEARS_RULE, SLOP_PATTERNS, STYLE_RULES, SUMMARY_YEARS_RULE, TAILOR_PROMPT, TRUTH_RULES,
+    BRIDGE_PROMPT, LETTER_AUTHORIZATION_RULE, LETTER_AVAILABILITY_CLAUSE, LETTER_KEYWORD_RULE, LETTER_PROMPT,
+    LETTER_STRUCTURE, LETTER_WARN_WORDS, LETTER_YEARS_RULE, SLOP_PATTERNS, STYLE_RULES, SUMMARY_YEARS_RULE,
+    TAILOR_PROMPT, TRUTH_RULES,
 )
 from core.compat import compat_label, missing_label
 from core.filters import years_shortfall
@@ -50,6 +54,7 @@ from db.queries import get_job_by_url, get_jobs
 from db.session import add_profile_arguments, apply_profile_arguments
 
 OUTPUT_DIR = Path(APPLICATIONS_DIR)
+MAX_BRIDGE_LINES = getattr(_settings, "MAX_BRIDGE_LINES", 2)
 
 TAILOR_SCHEMA = {
     "type": "object",
@@ -65,6 +70,21 @@ LETTER_SCHEMA = {
     "type": "object",
     "properties": {"paragraphs": {"type": "array", "items": {"type": "string"}}},
     "required": ["paragraphs"],
+}
+
+BRIDGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "bridges": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"requirement": {"type": "string"}, "source": {"type": "string"}, "line": {"type": "string"}},
+                "required": ["requirement", "source", "line"],
+            },
+        }
+    },
+    "required": ["bridges"],
 }
 
 # ------------------------------------------------------------------ writing style
@@ -175,8 +195,11 @@ def _fill(template_name: str, template: str, **values) -> str:
         ) from None
 
 
-def _resume_facts(resume: dict) -> str:
-    """Compact, duplicate-free view of the resume for prompts (and for number checking)."""
+def _resume_facts(resume: dict, extras: bool = False) -> str:
+    """Compact, duplicate-free view of the resume for prompts (and for number checking).
+
+    extras adds `interests` and `transferable_experience`, which only bridge mode uses.
+    """
     facts = {
         "summary": resume.get("summary", ""),
         "work_authorization": resume.get("work_authorization", ""),
@@ -202,8 +225,92 @@ def _resume_facts(resume: dict) -> str:
         "certifications": [{"name": c["name"], "date": c.get("date")} for c in resume.get("certifications", [])],
         "education": resume.get("education", []),
     }
+    if extras:
+        facts["interests"] = resume.get("interests", [])
+        facts["transferable_experience"] = resume.get("transferable_experience", [])
     return json.dumps({k: v for k, v in facts.items() if v}, indent=1)
 
+# ------------------------------------------------------------------------------- bridges
+# A bridge is one honest sentence that ties something real on your resume to a requirement the posting
+# asks for and you lack ("I supported end users daily as a full stack developer"). It never claims the
+# requirement itself. Hard requirements (clearance, work authorization, licenses) are never bridged.
+
+
+def bridgeable_gaps(job: dict) -> list[str]:
+    """Requirements worth bridging: the detailed check's missing list without hard blockers, else the model's gaps."""
+    missing = job.get("compat_missing")
+    if missing:
+        return [m["text"] for m in missing if isinstance(m, dict) and m.get("text") and not m.get("hard")]
+    return [g for g in (job.get("gaps") or []) if isinstance(g, str) and g.strip()][:6]
+
+
+def _bridge_sources(resume: dict) -> list[str]:
+    """Things on the resume a bridge line may come from."""
+    items = []
+    for e in resume.get("experience", []):
+        items += [e.get("role"), e.get("company")]
+    items += [p.get("name") for p in resume.get("projects", [])]
+    items += [c.get("name") for c in resume.get("certifications", [])]
+    items += resume.get("transferable_experience", []) + resume.get("interests", []) + resume.get("skills", [])
+    return [str(i).strip() for i in items if i and str(i).strip()]
+
+
+def _real_source(source: str, resume: dict) -> bool:
+    s = " ".join(str(source).lower().split())
+    return len(s) >= 3 and any(s in item.lower() or item.lower() in s for item in _bridge_sources(resume))
+
+
+def suggest_bridges(job: dict, resume: dict, ask=None) -> list[dict]:
+    """[{"requirement", "source", "line"}] for up to MAX_BRIDGE_LINES requirements, or [] if nothing honest connects.
+
+    Every line must name a real item on the resume as its source, contain no numbers that aren't in the resume
+    or the posting, and pass the AI-phrasing check. Lines that fail are dropped, never repaired.
+    """
+    gaps = bridgeable_gaps(job)
+    if not gaps or MAX_BRIDGE_LINES < 1:
+        return []
+    facts = _resume_facts(resume, extras=True)
+    prompt = _fill(
+        "BRIDGE_PROMPT", BRIDGE_PROMPT,
+        resume_facts=facts, job_title=job["title"], company=job["company"],
+        description=(job.get("description") or "")[:DESCRIPTION_CHARS_WRITING],
+        missing="\n".join(f"- {g}" for g in gaps), truth_rules=TRUTH_RULES, style_rules=STYLE_RULES,
+        max_lines=MAX_BRIDGE_LINES,
+    )
+    raw = (ask or _ask)(prompt, BRIDGE_SCHEMA)
+    allowed = facts + " " + job["title"] + " " + (job.get("description") or "")
+    out = []
+    for item in (raw.get("bridges") if isinstance(raw, dict) else None) or []:
+        if not isinstance(item, dict):
+            continue
+        line, source = clean_style(str(item.get("line", ""))), " ".join(str(item.get("source", "")).split())
+        requirement = " ".join(str(item.get("requirement", "")).split())
+        if not (20 <= len(line) <= 300 and requirement) or not _real_source(source, resume):
+            continue
+        if unsupported_numbers(line, allowed) or slop_flags(line):
+            continue
+        out.append({"requirement": requirement, "source": source, "line": line})
+    return out[:MAX_BRIDGE_LINES]
+
+
+def review_bridges(bridges: list[dict], ask=input) -> list[dict]:
+    """Let you accept, edit or skip each proposed line (--suggest-bridges). An edited line is yours as written."""
+    kept = []
+    for b in bridges:
+        print(f"\n  Requirement:      {b['requirement']}\n  From your resume: {b['source']}\n  Line:             {b['line']}")
+        while True:
+            reply = ask("  [A]ccept, [E]dit, [S]kip (Enter = accept): ").strip().lower()
+            if reply in ("", "a"):
+                kept.append(b)
+                break
+            if reply == "s":
+                break
+            if reply == "e":
+                text = clean_style(ask("  Your line: "))
+                if text:
+                    kept.append({**b, "line": text})
+                    break
+    return kept
 
 def tailor_resume(job: dict, resume: dict) -> dict:
     """Ask the model how to emphasize the resume for this job, then validate its choices."""
@@ -602,6 +709,9 @@ if __name__ == "__main__":
     p.add_argument("--min-score", type=float, default=6, help="with --top: minimum score (default 6)")
     p.add_argument("--days", type=int, help="with --top: only jobs scored in the last N days")
     p.add_argument("--force", action="store_true", help="regenerate even if the folder exists")
+    p.add_argument("--suggest-bridges", action="store_true",
+                   help="accept, edit or skip each proposed bridge line (implies --bridges-only for now)")
+    p.add_argument("--bridges-only", action="store_true", help="only show the proposed bridge lines; make no documents")
     add_profile_arguments(p)
     args = p.parse_args()
     apply_profile_arguments(args)
@@ -615,6 +725,19 @@ if __name__ == "__main__":
         jobs = get_jobs(args.top, "top", min_score=args.min_score, days=args.days, include_zero=False)
     else:
         raise SystemExit("Use --top N or --url JOB_URL (see --help).")
+
+    if args.bridges_only or args.suggest_bridges:
+        resume = load_resume()
+        for job in jobs:
+            print(f"\n[BRIDGE] {job['title'][:50]} - {job['company'][:30]}")
+            found = suggest_bridges(job, resume)
+            if found and args.suggest_bridges:
+                found = review_bridges(found)
+            for b in found:
+                print(f"[BRIDGE] {b['requirement']}: {b['line']}  [from: {b['source']}]")
+            if not found:
+                print("[BRIDGE] Nothing on the resume honestly connects to this job's gaps.")
+        raise SystemExit(0)
 
     print(f"[APPLY] {len(jobs)} job(s), model: {MODEL}")
     made, failures = 0, 0

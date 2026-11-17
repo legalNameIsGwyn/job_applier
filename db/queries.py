@@ -62,13 +62,16 @@ def get_jobs(n: int = 10, order: str = "top", min_score: float | None = None, ma
 
 def get_job_by_url(url: str, db_path: str = DB_PATH) -> dict | None:
     with session_scope(db_path) as s:
-        r = s.execute(select(Job, JobScore.match_score).outerjoin(JobScore, _on_score(current_profile_id(s)))
+        r = s.execute(select(Job, JobScore).outerjoin(JobScore, _on_score(current_profile_id(s)))
                       .where(Job.job_url == url)).first()
         if not r:
             return None
-        j, score = r
+        j, sc = r
         return dict(id=j.id, title=j.title, company=j.company, location=j.location, job_url=j.job_url,
-                    description=j.description, match_score=score)
+                    description=j.description, match_score=sc.match_score if sc else None,
+                    compat_pct=sc.compat_pct if sc else None, compat_detail_pct=sc.compat_detail_pct if sc else None,
+                    compat_missing=_json_list(sc.compat_missing) if sc else [], compat_capped=bool(sc and sc.compat_capped),
+                    gaps=_json_list(sc.gaps) if sc else [])
 
 
 def get_candidates(min_score: float, days: float, include_opened: bool = False, url: str | None = None,
@@ -213,4 +216,4 @@ def stats_jobs(since: str | None = None, db_path: str = DB_PATH) -> list[dict]:
                 continue   # never seen by this profile
             out.append(dict(id=j.id, site=j.site, title=j.title, company=j.company, match_score=score,
                             status=status, scraped_at=str(j.scraped_at), job_url=j.job_url))
-        return out
+        return out
