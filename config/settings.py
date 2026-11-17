@@ -12,6 +12,9 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent  # the folder that contains
 DEFAULT_PROFILE = "software"   # the profile used when you don't pass --profile
 MIN_SCORE = 5
 
+# A CSV of jobs to click through and apply to by hand, next to each profile's applications folder.
+CSV_LOG = True
+
 # --------------------------------------------------------------------- files and folders
 RESUME_FILE = PROJECT_DIR / "data" / "resume.json"                 # your resume data (stays outside config/)
 DB_PATH = os.environ.get("JOBS_DB") or str(PROJECT_DIR / "data" / "jobs_db.sqlite")             # the jobs database
