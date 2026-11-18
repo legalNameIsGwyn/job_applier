@@ -127,5 +127,10 @@ TAILOR_MODE = "auto"
 TAILOR_AUTO_BRIDGE_BELOW = 70       # compatibility under this uses bridge
 TAILOR_AUTO_BOILERPLATE_BELOW = 30  # compatibility under this uses boilerplate
 
+# Console look: None = automatic (colors only in a terminal, symbols only if it can show them)
+CONSOLE_COLOR = None     # True = always color, False = never
+CONSOLE_UNICODE = None   # False = plain ASCII symbols (+ x = !) if you see odd characters
+CONSOLE_DETAIL_COLOR = 134   # a name from --colors, or any number 0-255, e.g. 141
+
 from config.profile_loader import apply_overrides  # noqa: E402
 apply_overrides(globals())

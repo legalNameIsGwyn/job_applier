@@ -424,6 +424,8 @@ Prompts are Python format strings with `{placeholders}` (listed in a comment abo
 that names the file, the prompt and the allowed placeholders. Setting precedence: `config/` defaults, then the
 profile's parent, then the profile.
 
+`CONSOLE_COLOR` and `CONSOLE_UNICODE` in `config/settings.py` control the look of the console output. Both default to automatic: colors only appear in a terminal (and never when `NO_COLOR` is set), and symbols fall back to plain ASCII if the terminal can't show them. `python -m core.console` prints a sample so you can check how it looks.
+
 ---
 
 ## Project layout
