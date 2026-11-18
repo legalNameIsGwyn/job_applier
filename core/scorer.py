@@ -19,6 +19,7 @@ from config.settings import (
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logging.getLogger("httpx").setLevel(logging.WARNING)   # no "INFO:httpx:HTTP Request" line per model call
 
 MODEL = OLLAMA_MODEL
 

@@ -22,6 +22,7 @@ from config.prompts import COMPAT_PROMPT
 from config.settings import (
     COMPAT_DETAIL, DESCRIPTION_CHARS_SCORING, HARD_REQ_CAP, HARD_REQ_KINDS, MIN_SCORE, SCORING_TEMPERATURE,
 )
+from core.console import tag
 
 KINDS = ("skill", "experience", "education", "clearance", "work_authorization", "license_or_certification", "other")
 MAX_REQUIREMENTS = 20
@@ -262,7 +263,7 @@ def compute(job: dict, score: dict, final_score: float, resume: dict | None = No
             if result:
                 out.update(result)
         except Exception as e:   # the extra check must never cost a job its score
-            print(f"[COMPAT] Detailed check skipped for '{job.get('title', '')[:40]}': {e}")
+            tag("COMPAT", f"Detailed check skipped for '{job.get('title', '')[:40]}': {e}")
     return out
 
 

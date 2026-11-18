@@ -10,6 +10,7 @@ from datetime import date
 from pathlib import Path
 
 import config.settings as _settings
+from core.console import tag
 
 COLUMNS = ["date", "title", "company", "location", "score", "compat_pct", "mode", "job_url", "folder", "status"]
 
@@ -33,7 +34,7 @@ def known_urls(path: Path | None = None) -> set[str]:
         with open(path, newline="", encoding="utf-8-sig") as f:
             return {row.get("job_url", "") for row in csv.DictReader(f)} - {""}
     except (OSError, csv.Error, UnicodeDecodeError) as e:
-        print(f"[CSV] Could not read {path.name} ({e}); treating it as empty.")
+        tag("CSV", f"Could not read {path.name} ({e}); treating it as empty.")
         return set()
 
 
@@ -65,10 +66,10 @@ def log_job(job: dict, folder_name: str, mode: str = "", path: Path | None = Non
                 writer.writeheader()
             writer.writerow(row)
     except PermissionError:
-        print(f"[CSV] Could not write {path.name}. Is it open in Excel? Close it; the row is added on the next run.")
+        tag("CSV", f"Could not write {path.name}. Is it open in Excel? Close it; the row is added on the next run.")
         return False
     except OSError as e:
-        print(f"[CSV] Could not write {path.name}: {e}")
+        tag("CSV", f"Could not write {path.name}: {e}")
         return False
     return True
 
@@ -82,7 +83,7 @@ def handled_urls(path: Path | None = None) -> set[str]:
             return {row["job_url"] for row in csv.DictReader(f)
                     if (row.get("status") or "").strip() and row.get("job_url")}
     except (OSError, csv.Error, UnicodeDecodeError) as e:
-        print(f"[CSV] Could not read {path.name} ({e}); treating it as empty.")
+        tag("CSV", f"Could not read {path.name} ({e}); treating it as empty.")
         return set()
 
 def sync_statuses(labels: dict[str, str], path: Path | None = None, dry_run: bool = False) -> list[tuple[str, str]]:
@@ -115,6 +116,6 @@ def sync_statuses(labels: dict[str, str], path: Path | None = None, dry_run: boo
             tmp.replace(path)
         except PermissionError:
             tmp.unlink(missing_ok=True)
-            print(f"[CSV] Could not write {path.name}. Is it open in Excel? Close it and run again.")
+            tag("CSV", f"Could not write {path.name}. Is it open in Excel? Close it and run again.")
             return []
     return changed
