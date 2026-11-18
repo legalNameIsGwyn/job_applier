@@ -14,6 +14,7 @@ import re
 import time
 from urllib.parse import parse_qs, unquote, urlsplit
 from core.job_status import closed_in_text
+from core.console import tag
 
 # LinkedIn's own page furniture (messaging dock, top navigation): never click anything in these.
 CHROME = "#msg-overlay, [class*='msg-overlay'], #global-nav, .global-nav, [role=navigation]"
@@ -173,43 +174,43 @@ def resolve_apply_link(context, job_url: str) -> tuple[str, str | None]:
         page.wait_for_timeout(2500)
 
         if NOT_A_JOB_PAGE.search(page.url):
-            print(f"[LINKEDIN] LinkedIn sent us to {page.url} instead of the job. Not clicking anything.")
+            tag("LINKEDIN", f"LinkedIn sent us to {page.url} instead of the job. Not clicking anything.")
             return "unknown", None
         if LOGIN_WALL.search(page.url) or page.locator(".contextual-sign-in-modal").count() > 0:
             return "login", None
         if _page_says_closed(page):
-            print("[LINKEDIN] This posting is closed (no longer taking applications).")
+            tag("LINKEDIN", "This posting is closed (no longer taking applications).")
             return "closed", None
         
         kind, apply, info = find_apply_control(page)
 
         if kind == "direct":
-            print(f"[LINKEDIN] Read the employer link from the Apply button (nothing clicked): {info}")
+            tag("LINKEDIN", f"Read the employer link from the Apply button (nothing clicked): {info}")
             return "link", info
         if kind == "easy":
-            print(f"[LINKEDIN] This job's own button says Easy Apply ({info!r}), so there is no employer link.")
+            tag("LINKEDIN", f"This job's own button says Easy Apply ({info!r}), so there is no employer link.")
             return "easy", None
         if kind == "none":
-            print(f"[LINKEDIN] No Apply button found. {info}")
+            tag("LINKEDIN", f"No Apply button found. {info}")
             return "unknown", None
-        print(f"[LINKEDIN] Clicking {info}")
+        tag("LINKEDIN", f"Clicking {info}")
         
         try:
             with context.expect_page(timeout=8000) as opened:
                 apply.click()
             popup = opened.value
             try:
-                print(f"[LINKEDIN] A new tab opened: {popup.url[:120]}")
+                tag("LINKEDIN", f"A new tab opened: {popup.url[:120]}")
                 url = _settle(popup)
                 if not url:
-                    print(f"[LINKEDIN] Apply opened a page but no employer URL was found there: {popup.url}")
+                    tag("LINKEDIN", f"Apply opened a page but no employer URL was found there: {popup.url}")
                 return ("link", url) if url else ("unknown", None)
             finally:
                 popup.close()
         except PlaywrightTimeout:  # no new tab: it may have gone to the employer in this tab
             url = external_target(page.url) if page.url != job_url else None
             if not url:
-                print(f"[LINKEDIN] Clicked Apply but no new page opened and this one didn't change: {page.url}")
+                tag("LINKEDIN", f"Clicked Apply but no new page opened and this one didn't change: {page.url}")
             return ("link", url) if url else ("unknown", None)
     finally:
         page.close()
@@ -222,14 +223,14 @@ def resolve_links(context, job_urls: list[str], delay=(8, 20), sleep=time.sleep)
         try:
             outcome, url = resolve_apply_link(context, job_url)
         except Exception as e:
-            print(f"[LINKEDIN] {job_url}: {type(e).__name__}: {e}")
+            tag("LINKEDIN", f"{job_url}: {type(e).__name__}: {e}")
             continue
         results[job_url] = (outcome, url)
         if outcome == "login":
-            print("[LINKEDIN] Not logged in (or LinkedIn wants verification). "
+            tag("LINKEDIN", "Not logged in (or LinkedIn wants verification). "
                   "Run  python apply_jobs.py --login  and sign in, then try again.")
             break
-        print(f"[LINKEDIN] {n}/{len(job_urls)} {outcome}" + (f": {url}" if url else ""))
+        tag("LINKEDIN", f"{n}/{len(job_urls)} {outcome}" + (f": {url}" if url else ""))
         if n < len(job_urls):
             sleep(random.uniform(*delay))
     return results

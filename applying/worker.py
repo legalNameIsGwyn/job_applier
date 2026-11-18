@@ -31,6 +31,7 @@ from pathlib import Path
 
 from config.settings import PROJECT_DIR
 import config.apply_settings as _cfg
+from core.console import tag
 
 PROJECT_DIR = Path(PROJECT_DIR)
 RUNS_DIR = PROJECT_DIR / "data" / "apply_runs"
@@ -82,20 +83,20 @@ def launch_all(ready: list, parallel: int, prepare=None, poll: float = 2.0, spaw
     """
     spawn = spawn or _spawn
     if spawn is _spawn and os.name != "nt":
-        print("[APPLY] Separate terminal windows are only set up for Windows. Use  --parallel 1  here.")
+        tag("APPLY", "Separate terminal windows are only set up for Windows. Use  --parallel 1  here.")
         return []
     run_dir = RUNS_DIR / datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
     total = len(ready)
     parallel = max(1, min(parallel, total))
-    print(f"[APPLY] {total} application(s), {parallel} window(s) at a time. Details are in each window; "
+    tag("APPLY", f"{total} application(s), {parallel} window(s) at a time. Details are in each window; "
           f"this one shows progress.\n")
 
     queue = []
     for n, (job, link, ats) in enumerate(ready, start=1):
         label = f"{job['title'][:38]} - {job['company'][:22]}"
         if prepare:
-            print(f"[APPLY] Documents {n}/{total}: {label}")
+            tag("APPLY", f"Documents {n}/{total}: {label}")
             try:
                 prepare(job)
             except Exception as e:
@@ -113,7 +114,7 @@ def launch_all(ready: list, parallel: int, prepare=None, poll: float = 2.0, spaw
             while queue and len(running) < parallel:
                 item = queue.pop(0)
                 running[item["n"]] = (spawn(item["spec"]), item)
-                print(f"[APPLY] Opened window {item['n']}/{total}: {item['label']}")
+                tag("APPLY", f"Opened window {item['n']}/{total}: {item['label']}")
             for n, (proc, item) in list(running.items()):
                 st = _read_status(item["status"])
                 text = st.get("text", "")
@@ -129,10 +130,13 @@ def launch_all(ready: list, parallel: int, prepare=None, poll: float = 2.0, spaw
                     results.append({"n": n, "label": item["label"], **st})
             time.sleep(poll)
     except KeyboardInterrupt:
-        print("\n[APPLY] Stopped watching. Windows that are already open keep running on their own.")
+        print()
+        tag("APPLY", "Stopped watching. Windows that are already open keep running on their own.")
         return results
 
-    print(f"\n[APPLY] Finished {len(results)} application(s):")
+    print()
+
+    tag("APPLY", f"Finished {len(results)} application(s):")
     for r in sorted(results, key=lambda r: r["n"]):
         print(f"  {r['n']}. {r['label']}: {r.get('text', r.get('state'))}")
     return results

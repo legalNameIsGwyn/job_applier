@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from config.settings import ACTIVE_PROFILE, DB_PATH, DEFAULT_PROFILE
 from db.models import Base, Profile
+from core.console import tag
 
 _engines: dict = {}
 _active_name: str | None = None
@@ -125,7 +126,7 @@ def select_profile(name: str | None = None, db_path=DB_PATH) -> str:
     with session_scope(db_path) as s:
         if s.scalar(select(Profile.id).where(Profile.name == name)) is None:
             s.add(Profile(name=name))
-            print(f"[PROFILE] First use of '{name}': added it to the database.")
+            tag("PROFILE", f"First use of '{name}': added it to the database.")
     set_active_profile(name)
     return name
 

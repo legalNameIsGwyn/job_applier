@@ -11,6 +11,7 @@ import argparse
 from core.csv_log import csv_path, sync_statuses
 from db.queries import application_statuses
 from db.session import add_profile_arguments, apply_profile_arguments
+from core.console import tag
 
 LABELS = {"applied": "auto-applied", "closed": "closed"}
 
@@ -29,8 +30,8 @@ def main() -> None:
     labels = {url: LABELS[status] for url, status in application_statuses().items() if status in LABELS}
     changed = sync_statuses(labels, dry_run=args.dry_run)
     verb = "would fill" if args.dry_run else "filled"
-    print(f"[CSV] {path}")
-    print(f"[CSV] {len(labels)} job(s) in the database are applied or closed; {verb} {len(changed)} blank status cell(s)")
+    tag("CSV", f"{path}")
+    tag("CSV", f"{len(labels)} job(s) in the database are applied or closed; {verb} {len(changed)} blank status cell(s)")
     for url, text in changed:
         print(f"  {text:<13} {url}")
 

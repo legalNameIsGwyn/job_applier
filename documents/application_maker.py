@@ -55,6 +55,7 @@ from config.writing_style import (
     LETTER_BRIDGE_RULE, LETTER_KEYWORD_RULE, LETTER_PROMPT, LETTER_STRUCTURE, LETTER_WARN_WORDS, LETTER_YEARS_RULE,
     SLOP_PATTERNS, STYLE_RULES, SUMMARY_BRIDGE_RULE, SUMMARY_YEARS_RULE, TAILOR_PROMPT, TRUTH_RULES,
 )
+from core.console import INDENT, LABEL, decision, job_head, paint, say, step, wrap
 from core.compat import compat_label, missing_label
 from core.filters import years_shortfall
 from core.scorer import MODEL, client, extract_json, load_resume
@@ -228,6 +229,17 @@ def choose_mode(job: dict, requested: str | None = None) -> tuple[str, str]:
     if pct >= BOILERPLATE_BELOW:
         return "bridge", f"auto: compatibility {pct:g}%"
     return "boilerplate", f"auto: compatibility {pct:g}%"
+
+MODE_COLORS = {"standard": "green", "bridge": "orange", "boilerplate": "yellow"}
+
+
+def bridge_line(b: dict, show_source: bool = False) -> None:
+    """   bridge   <requirement>
+                → <resume line>"""
+    say("bridge", b["requirement"], "orange")
+    pad = INDENT + " " * (LABEL + 1)
+    line = b["line"] + (f"  [from: {b['source']}]" if show_source and b.get("source") else "")
+    print(wrap(line, pad + paint("→ ", "gray"), pad + "  "))
 
 def _resume_facts(resume: dict, extras: bool = False) -> str:
     """Compact, duplicate-free view of the resume for prompts (and for number checking).
@@ -713,7 +725,7 @@ def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = Fal
     """
     folder = job_folder(job, out_root)
     if folder.exists() and not force:
-        print(f"[APPLY] Already exists, skipping: {folder.name}")
+        decision("skip", f"skipped: already exists ({folder.name})")
         return None
 
     resume = load_resume()
@@ -729,14 +741,14 @@ def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = Fal
         try:
             bridges = suggest_bridges(job, resume)
         except Exception as e:
-            print(f"[BRIDGE] Could not propose bridge lines ({e}); writing the standard letter.")
+            decision("warn", f"bridge: could not propose bridge lines ({e}); writing the standard letter")
         if review and bridges:
             bridges = review_bridges(bridges)
-    print(f"[APPLY] Mode: {mode} ({why})")
+    say("mode", f"{mode} ({why})", MODE_COLORS.get(mode))
     for b in bridges:
-        print(f"[BRIDGE] {b['requirement']}: {b['line']}")
+        bridge_line(b)
     if mode == "bridge" and not bridges:
-        print("[BRIDGE] Nothing on the resume honestly connects to this job's gaps, so the standard letter is used.")
+        say("bridge", "nothing on the resume honestly connects to this job's gaps, so the standard letter is used", "gray")
 
     tailored = tailor_resume(job, resume, mode, bridges)
     paragraphs, warnings = write_cover_letter(job, resume, mode, bridges)
@@ -781,9 +793,9 @@ def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = Fal
         *[f"- WARNING: {w}" for w in warnings],
     ]
     (folder / NOTES_FILENAME).write_text("\n".join(notes) + "\n", encoding="utf-8")
-    print(f"[APPLY] Created {folder}")
+    decision("ok", f"created: {folder.name}")
     for w in warnings:
-        print(f"[APPLY]   WARNING: {w}")
+        decision("warn", f"check: {w}")
     return folder
 
 
@@ -815,30 +827,33 @@ if __name__ == "__main__":
     if args.bridges_only:
         resume = load_resume()
         for job in jobs:
-            print(f"\n[BRIDGE] {job['title'][:50]} - {job['company'][:30]}")
+            print()
+            job_head(job["title"], job["company"], job["job_url"])
             found = suggest_bridges(job, resume)
             if found and args.suggest_bridges:
                 found = review_bridges(found)
             for b in found:
-                print(f"[BRIDGE] {b['requirement']}: {b['line']}  [from: {b['source']}]")
+                bridge_line(b, show_source=True)
             if not found:
-                print("[BRIDGE] Nothing on the resume honestly connects to this job's gaps.")
+                say("bridge", "nothing on the resume honestly connects to this job's gaps", "gray")
         raise SystemExit(0)
     
     mode = args.mode or ("bridge" if args.suggest_bridges else None)
 
-    print(f"[APPLY] {len(jobs)} job(s), model: {MODEL}")
+    step(None, "DOCUMENTS", f"{len(jobs)} job(s), model: {MODEL}")
     made, failures = 0, 0
     for job in jobs:
-        print(f"\n[APPLY] {job['title'][:50]} - {job['company'][:30]}")
+        print()
+        job_head(job["title"], job["company"], job["job_url"])
         try:
             if create_application(job, force=args.force, mode=mode, review=args.suggest_bridges):
                 made += 1
             failures = 0
         except Exception as e:
             failures += 1
-            print(f"[APPLY] Failed: {e}")
+            decision("bad", f"failed: {e}")
             if failures >= 3:
-                print("[APPLY] 3 failures in a row. Is Ollama running? Stopping.")
+                decision("bad", "stopped: 3 failures in a row. Is Ollama running?")
                 break
-    print(f"\n[APPLY] Done. {made} created in {OUTPUT_DIR}")
+    print()
+    say("result", f"{made} created in {OUTPUT_DIR}")

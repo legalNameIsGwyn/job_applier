@@ -45,6 +45,7 @@ from db.session import add_profile_arguments, apply_profile_arguments
 from applying.form_filler import fill_form, open_application
 from core.job_status import check_open, closed_in_text
 from core.scorer import load_resume
+from core.console import decision, fmt_score, job_head, step, tag
 
 # Optional settings (defaults apply if config/apply_settings.py doesn't have them yet)
 GENERIC_AUTO_ADVANCE = getattr(_cfg, "GENERIC_AUTO_ADVANCE", True)
@@ -104,20 +105,20 @@ def find_employer_links(jobs: list[dict]) -> int:
     try:
         from applying.ats_lookup import LinkFinder
     except ImportError:
-        print("[APPLY] ats_lookup.py not found; skipping the company-board search.")
+        tag("APPLY", "ats_lookup.py not found; skipping the company-board search.")
         return 0
 
     todo = [j for j in jobs if not j.get("apply_url") and "linkedin.com" in j["job_url"]][:FIND_LINKS_MAX]
     if not todo:
         return 0
-    print(f"[APPLY] Searching company job boards (Greenhouse, Lever, Ashby) for {len(todo)} job(s)...")
+    tag("APPLY", f"Searching company job boards (Greenhouse, Lever, Ashby) for {len(todo)} job(s)...")
     finder, found = LinkFinder(), 0
     for job in todo:
         link = finder.find(job["company"], job["title"], job.get("location", ""))
         set_apply_url(job["job_url"], link or NO_LINK)
         job["apply_url"] = link or NO_LINK
         found += bool(link)
-    print(f"[APPLY] Found a direct application page for {found} of {len(todo)}.")
+    tag("APPLY", f"Found a direct application page for {found} of {len(todo)}.")
     return len(todo)
 
 
@@ -138,7 +139,7 @@ def resolve_via_linkedin(jobs: list[dict]) -> int:
             and "linkedin.com" in j["job_url"]][:LINKEDIN_CLICK_MAX]
     if not todo:
         return 0
-    print(f"[APPLY] Opening {len(todo)} LinkedIn posting(s) in your logged-in browser to find the employer link...")
+    tag("APPLY", f"Opening {len(todo)} LinkedIn posting(s) in your logged-in browser to find the employer link...")
     with sync_playwright() as p:
         context = _open_profile(p)
         try:
@@ -161,7 +162,7 @@ def resolve_via_linkedin(jobs: list[dict]) -> int:
         elif outcome in ("easy", "unknown"):  # remember we tried, so it isn't clicked again every run
             set_apply_url(job["job_url"], CLICK_CHECKED)
             job["apply_url"] = CLICK_CHECKED
-    print(f"[APPLY] Found {found} employer link(s) through LinkedIn."
+    tag("APPLY", f"Found {found} employer link(s) through LinkedIn."
           + (f" {closed} posting(s) are closed and were dropped." if closed else ""))
     return found
 
@@ -178,7 +179,7 @@ def login(site: str = "linkedin") -> None:
             input(f"Log in to {site} in the browser window (including any verification), then press Enter here: ")
         finally:
             context.close()
-    print("[APPLY] Saved. Your login is remembered in the browser profile folder.")
+    tag("APPLY", "Saved. Your login is remembered in the browser profile folder.")
 
 
 def forget_missing_links(db_path: str = DB_PATH) -> int:
@@ -252,7 +253,7 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
     init_db()
     jobs = get_candidates(min_score, days, include_opened, url)
     if not jobs:
-        print("[APPLY] No jobs to apply to (score too low, nothing recent, or all already handled).")
+        tag("APPLY", "No jobs to apply to (score too low, nothing recent, or all already handled).")
         return
 
     if AUTO_FIND_LINKS:
@@ -263,16 +264,18 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
     ready = []
     for job in jobs:
         link, ats, reason = target_for(job)
-        label = f"{job['match_score']:g}  {job['title'][:45]} - {job['company'][:25]}"
+        print()
+        job_head(f"{fmt_score(job['match_score'])}  {job['title']}", job["company"], link or job["job_url"])
         if reason:
-            print(f"[APPLY] skip  {label}\n          {reason}")
+            decision("skip", f"skip: {reason}")
         elif CHECK_STILL_OPEN and check_open(link) == "closed":
-            print(f"[APPLY] closed {label}\n          the posting is no longer open")
+            decision("bad", "closed: the posting is no longer open")
             record_application(job["job_url"], "closed", apply_url=link, ats=ats)
         else:
-            print(f"[APPLY] ready {label}  [{ats}{' - generic filler, best effort' if ats in GENERIC_SITES else ''}]")
+            decision("ok", f"ready: {ats}{' (generic filler, best effort)' if ats in GENERIC_SITES else ''}")
             ready.append((job, link, ats))
-    print(f"\n[APPLY] {len(ready)} of {len(jobs)} job(s) can be filled.")
+    print()
+    tag("APPLY", f"{len(ready)} of {len(jobs)} job(s) can be filled.")
 
     if list_only or not ready:
         return
@@ -285,7 +288,7 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        print("[APPLY] Playwright isn't installed. Run:  pip install playwright   then   playwright install chromium")
+        tag("APPLY", "Playwright isn't installed. Run:  pip install playwright   then   playwright install chromium")
         return
 
     done = 0
@@ -293,11 +296,14 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
         context = _open_profile(p)
         try:
             for job, link, ats in ready[:limit]:
-                print(f"\n{'=' * 60}\n[APPLY] {job['title']} - {job['company']}  (score {job['match_score']:g})\n  {link}")
+                step(None, "APPLYING", right=f"score {fmt_score(job['match_score'])}")
+                print()
+                job_head(job["title"], job["company"], link)
                 try:
                     status = apply_to_job(context, job, link, ats)
                 except KeyboardInterrupt:
-                    print("\n[APPLY] Stopped.")
+                    print()
+                    tag("APPLY", "Stopped.")
                     break
                 except Exception as e:
                     print(f"  Failed: {e}")
@@ -312,7 +318,8 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
                 print(f"  Recorded as: {status}")
         finally:
             context.close()
-    print(f"\n[APPLY] Opened {done} application(s).")
+    print()
+    tag("APPLY", f"Opened {done} application(s).")
 
 
 if __name__ == "__main__":
@@ -338,10 +345,10 @@ if __name__ == "__main__":
         raise SystemExit
     if args.recheck_links:
         init_db()
-        print(f"[APPLY] Cleared {forget_missing_links()} 'no link found' result(s).")
+        tag("APPLY", f"Cleared {forget_missing_links()} 'no link found' result(s).")
     if args.set_url:
         init_db()
         ok = set_apply_url(*args.set_url)
-        print("[APPLY] Saved." if ok else "[APPLY] That job URL isn't in the database.")
+        tag("APPLY", "Saved." if ok else "That job URL isn't in the database.")
     else:
         run(args.top, args.min_score, args.days, args.include_opened, args.url, args.list, args.parallel)

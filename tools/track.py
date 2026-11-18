@@ -31,6 +31,7 @@ import sys
 
 import db.tracking as T
 from db.session import add_profile_arguments, apply_profile_arguments
+from core.console import tag
 
 
 def _pick(ref: str) -> str:
@@ -39,7 +40,7 @@ def _pick(ref: str) -> str:
         return url
     if not matches:
         sys.exit(f"[TRACK] No job matches '{ref}'. Use the # from `python -m tools.show_jobs` or `python -m tools.track list`, a URL, or part of the company.")
-    print(f"[TRACK] '{ref}' matches {len(matches)} jobs. Be more specific (use the # number):")
+    tag("TRACK", f"'{ref}' matches {len(matches)} jobs. Be more specific (use the # number):")
     for r in matches:
         print(f"   #{r['id']:<5} {r['company']} - {r['title']}")
     sys.exit(1)
@@ -67,7 +68,7 @@ def cmd_list(args):
     T.sync_applied()
     rows = T.get_tracked(stage=args.stage, stale_days=args.stale, active_only=not (args.all or args.stage))
     if not rows:
-        print("[TRACK] Nothing tracked yet." if not (args.stage or args.stale) else "[TRACK] Nothing matches.")
+        tag("TRACK", "Nothing tracked yet." if not (args.stage or args.stale) else "Nothing matches.")
         return
     print(f"{'#':<6}{'stage':<10}{'updated':<11}{'company':<25}title")
     for r in rows:
@@ -106,9 +107,9 @@ def cmd_show(args):
 def cmd_add(args):
     url = _pick(args.job)
     if T.log_applied(url, on_date=T.parse_date(args.date), note=args.note, ats=args.ats):
-        print(f"[TRACK] Tracking: {_title(url)}")
+        tag("TRACK", f"Tracking: {_title(url)}")
     else:
-        print(f"[TRACK] Already tracked: {_title(url)}")
+        tag("TRACK", f"Already tracked: {_title(url)}")
 
 
 def _set(url, stage, date_text, note):
@@ -117,7 +118,7 @@ def _set(url, stage, date_text, note):
     except KeyError:   # not tracked yet: start it so one command is enough
         T.log_applied(url)
         T.set_stage(url, stage, T.parse_date(date_text), note)
-    print(f"[TRACK] {_title(url)} -> {stage}")
+    tag("TRACK", f"{_title(url)} -> {stage}")
 
 
 def cmd_stage(args):
@@ -128,7 +129,7 @@ def cmd_note(args):
     url = _pick(args.job)
     _ensure(url)
     T.append_note(url, args.text)
-    print(f"[TRACK] Note saved for {_title(url)}")
+    tag("TRACK", f"Note saved for {_title(url)}")
 
 
 def _ensure(url):
@@ -139,27 +140,27 @@ def cmd_contact(args):
     url = _pick(args.job)
     _ensure(url)
     T.update_fields(url, contact_name=args.name, contact_email=args.email)
-    print(f"[TRACK] Contact saved for {_title(url)}")
+    tag("TRACK", f"Contact saved for {_title(url)}")
 
 
 def cmd_schedule(args):
     url = _pick(args.job)
     _ensure(url)
     T.update_fields(url, interview_on=T.parse_date(args.date))
-    print(f"[TRACK] Interview date set for {_title(url)}")
+    tag("TRACK", f"Interview date set for {_title(url)}")
 
 
 def cmd_followup(args):
     url = _pick(args.job)
     _ensure(url)
     T.update_fields(url, follow_up_on=T.parse_date(args.date))
-    print(f"[TRACK] Follow-up date set for {_title(url)}")
+    tag("TRACK", f"Follow-up date set for {_title(url)}")
 
 
 def cmd_sync(args):
     n = T.sync_applied()
-    print(f"[TRACK] Started tracking {n} application(s) already marked applied." if n else
-          "[TRACK] Nothing to sync.")
+    tag("TRACK", f"Started tracking {n} application(s) already marked applied." if n else
+          "Nothing to sync.")
 
 
 def main():

@@ -28,6 +28,7 @@ from db.calibrations import load_calibration
 from db.queries import jobs_for_rescore
 from db.repo import FAILED_SCORE, init_db, save_job
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
+from core.console import tag
 
 
 def get_targets(failed_only=False, include_filtered=False, url=None, limit=None, include_unscored=False,
@@ -42,12 +43,12 @@ def rescore(failed_only=False, include_filtered=False, url=None, limit=None, ass
     init_db(db_path)
     jobs = get_targets(failed_only, include_filtered, url, limit, include_unscored, db_path)
     if not jobs:
-        print("[RESCORE] No matching jobs with a description.")
+        tag("RESCORE", "No matching jobs with a description.")
         return {"updated": 0, "filtered": 0, "failed": 0}
 
-    print(f"[RESCORE] Profile '{active_profile_name()}': {len(jobs)} job(s) to re-score with model '{MODEL}'.")
+    tag("RESCORE", f"Profile '{active_profile_name()}': {len(jobs)} job(s) to re-score with model '{MODEL}'.")
     if not assume_yes and input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
-        print("[RESCORE] Cancelled.")
+        tag("RESCORE", "Cancelled.")
         return {"updated": 0, "filtered": 0, "failed": 0}
 
     cal = load_calibration(db_path)   # read once, not once per job
@@ -58,7 +59,7 @@ def rescore(failed_only=False, include_filtered=False, url=None, limit=None, ass
 
         reason = filter_reason(job["title"], job["company"], job["description"])
         if reason:
-            print(f"[RESCORE] {i}/{len(jobs)} FILTERED  {label}: {reason}")
+            tag("RESCORE", f"{i}/{len(jobs)} FILTERED  {label}: {reason}")
             save_job(job, {"match_score": 0.0, "matched_skills": [], "gaps": [reason]},
                      db_path=db_path, status="filtered", model_score=0.0)
             filtered += 1
@@ -77,22 +78,23 @@ def rescore(failed_only=False, include_filtered=False, url=None, limit=None, ass
             updated += 1
             changes.append((old, new, job["title"], job["company"]))
             before = "new" if old is None else "failed" if old == FAILED_SCORE else f"{old:g}"
-            print(f"[RESCORE] {i}/{len(jobs)} {before} -> {new:g}  (model {model:g}, keywords {kw:g})  {label}")
+            tag("RESCORE", f"{i}/{len(jobs)} {before} -> {new:g}  (model {model:g}, keywords {kw:g})  {label}")
         except Exception as e:
             failed += 1
             streak += 1
-            print(f"[RESCORE] {i}/{len(jobs)} FAILED, old score kept  {label}: {e}")
+            tag("RESCORE", f"{i}/{len(jobs)} FAILED, old score kept  {label}: {e}")
             if streak >= MAX_CONSECUTIVE_FAILURES:
-                print(f"[RESCORE] {MAX_CONSECUTIVE_FAILURES} failures in a row. Is Ollama running and "
+                tag("RESCORE", f"{MAX_CONSECUTIVE_FAILURES} failures in a row. Is Ollama running and "
                       f"is '{MODEL}' pulled? Stopping; progress so far is saved.")
                 break
 
     scored_before = [c for c in changes if c[0] is not None and c[0] != FAILED_SCORE]
-    print(f"\n[RESCORE] Updated {updated}, newly filtered {filtered}, failed {failed}.")
+    print()
+    tag("RESCORE", f"Updated {updated}, newly filtered {filtered}, failed {failed}.")
     if scored_before:
         avg = sum(c[1] - c[0] for c in scored_before) / len(scored_before)
-        print(f"[RESCORE] Average change in score: {avg:+.2f}")
-        print("[RESCORE] Biggest moves:")
+        tag("RESCORE", f"Average change in score: {avg:+.2f}")
+        tag("RESCORE", "Biggest moves:")
         for old, new, title, company in sorted(scored_before, key=lambda c: abs(c[1] - c[0]), reverse=True)[:5]:
             print(f"   {old:g} -> {new:g}  {title[:45]} - {company[:25]}")
     return {"updated": updated, "filtered": filtered, "failed": failed}
@@ -111,4 +113,4 @@ if __name__ == "__main__":
     add_profile_arguments(parser)
     args = parser.parse_args()
     apply_profile_arguments(args)
-    rescore(args.failed_only, args.include_filtered, args.url, args.limit, args.yes, args.include_unscored)
+    rescore(args.failed_only, args.include_filtered, args.url, args.limit, args.yes, args.include_unscored)
