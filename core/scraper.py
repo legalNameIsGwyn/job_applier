@@ -16,6 +16,7 @@ from config.settings import (
     DESCRIPTION_FETCH_DELAY, DESCRIPTION_FETCH_TIMEOUT, RATE_LIMIT_BACKOFF_SECONDS, RATE_LIMIT_STOP_AFTER,
     LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS, LINKEDIN_RESULTS_WANTED, USER_AGENT,
 )  # all tunable in config/settings.py
+from core.console import tag
 
 try:  # both are normally installed alongside jobspy
     import requests
@@ -176,11 +177,11 @@ def fill_missing_descriptions(
         return df
 
     if requests is None or BeautifulSoup is None:
-        print("[SCRAPER] 'requests' and 'beautifulsoup4' are needed to fetch descriptions: "
+        tag("SCRAPER", "'requests' and 'beautifulsoup4' are needed to fetch descriptions: "
               "pip install requests beautifulsoup4")
         return df
 
-    print(f"[SCRAPER] Fetching {len(missing)} LinkedIn descriptions "
+    tag("SCRAPER", f"Fetching {len(missing)} LinkedIn descriptions "
           f"(~{int(len(missing) * (min_delay + max_delay) / 2)}s, spaced out to avoid rate limits)")
 
     session = requests.Session()
@@ -201,14 +202,14 @@ def fill_missing_descriptions(
         except _RateLimited:
             rate_limited_in_a_row += 1
             if rate_limited_in_a_row >= RATE_LIMIT_STOP_AFTER:
-                print("[SCRAPER] LinkedIn is rate limiting (429). Stopping description "
+                tag("SCRAPER", "LinkedIn is rate limiting (429). Stopping description "
                       "fetching; wait a while and re-run to pick up the rest.")
                 break
-            print("[SCRAPER] Rate limited (429), backing off...")
+            tag("SCRAPER", "Rate limited (429), backing off...")
             time.sleep(RATE_LIMIT_BACKOFF_SECONDS * rate_limited_in_a_row)
             continue
         except requests.RequestException as e:
-            print(f"[SCRAPER] Could not fetch job {job_id}: {e}")
+            tag("SCRAPER", f"Could not fetch job {job_id}: {e}")
             continue
 
         if text:
@@ -226,10 +227,10 @@ def fill_missing_descriptions(
             if _is_blank(df.at[idx, "job_url_direct"]):
                 df.at[idx, "job_url_direct"] = link
         if n % 10 == 0:
-            print(f"[SCRAPER] Fetched {n}/{len(missing)} pages ({filled} descriptions)")
+            tag("SCRAPER", f"Fetched {n}/{len(missing)} pages ({filled} descriptions)")
         time.sleep(random.uniform(min_delay, max_delay))
 
-    print(f"[SCRAPER] Got descriptions for {filled}/{len(missing)} jobs")
+    tag("SCRAPER", f"Got descriptions for {filled}/{len(missing)} jobs")
     return df
 
 
@@ -254,7 +255,7 @@ async def scrape_sites(
     if normalized_site not in AVAILABLE_SITES:
         raise ValueError(f"Invalid site name. Must be one of: {AVAILABLE_SITES}")
 
-    print(f'[SCRAPER] Scraping {normalized_site}: "{search_term}" in {location}')
+    tag("SCRAPER", f'Scraping {normalized_site}: "{search_term}" in {location}')
 
     try:
         # scrape_jobs is blocking, so run it in a worker thread; this is what
@@ -268,11 +269,11 @@ async def scrape_sites(
             **(DESCRIPTION_KWARGS if LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS else {}),
             **config,
         )
-        print(f"[SCRAPER] Found {len(df)} jobs from {normalized_site}")
+        tag("SCRAPER", f"Found {len(df)} jobs from {normalized_site}")
         return df
 
     except Exception as e:
-        print(f"[SCRAPER] Error scraping {normalized_site}: {e}")
+        tag("SCRAPER", f"Error scraping {normalized_site}: {e}")
         raise
 
 
@@ -295,7 +296,7 @@ async def scrape_multiple_sites(
         raise RuntimeError("No sites scraped successfully")
 
     combined_df = pd.concat(dfs, ignore_index=True)
-    print(f"[SCRAPER] Total jobs found across all sites: {len(combined_df)}")
+    tag("SCRAPER", f"Total jobs found across all sites: {len(combined_df)}")
     return combined_df
 
 
@@ -321,7 +322,7 @@ async def scrape_multiple_terms(
         try:
             df = await scrape_multiple_sites(site_names, term, location, results_wanted, hours_old)
         except Exception as e:
-            print(f'[SCRAPER] Skipping "{term}": {e}')
+            tag("SCRAPER", f'Skipping "{term}": {e}')
             continue
         df["search_term"] = term
         dfs.append(df)
@@ -332,5 +333,5 @@ async def scrape_multiple_terms(
     combined = pd.concat(dfs, ignore_index=True)
     before = len(combined)
     combined = combined.drop_duplicates(subset="job_url").reset_index(drop=True)
-    print(f"[SCRAPER] {before} jobs across {len(dfs)} search terms -> {len(combined)} unique")
+    tag("SCRAPER", f"{before} jobs across {len(dfs)} search terms -> {len(combined)} unique")
     return combined
