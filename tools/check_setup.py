@@ -31,12 +31,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 SKIP_DIRS = {"archive", "data", "reports", "__pycache__", "venv", ".venv", "env", ".git", "node_modules",
-             "backups", "archived_applications", "applications"}
+             "backups", "archived_applications", "applications", "profiles"}
 THIRD_PARTY = {"jobspy": "python-jobspy", "ollama": "ollama", "pandas": "pandas", "numpy": "numpy",
                "docx": "python-docx", "requests": "requests", "bs4": "beautifulsoup4", "playwright": "playwright"}
 CONFIG_FILES = ["settings", "apply_settings", "answers", "filter_rules", "keywords", "job_notes", "prompts",
                 "writing_style"]
-PRIVATE = ["data/", "applications/", "browser_profile", "learned_answers.json", "jobs.csv", ".sqlite", "reports/"]
+PRIVATE = ["data/", "applications/", "applications.csv", "browser_profile", "learned_answers.json", "jobs.csv", ".sqlite", "reports/"]
 EXPECTED_TABLES = {"jobs", "ratings", "applications"}
 
 counts = {"ok": 0, "warn": 0, "fail": 0}
@@ -109,9 +109,14 @@ def check_layout() -> list[Path]:
     for name in ("main.py", "apply_jobs.py", "requirements.txt", ".gitignore"):
         say("ok" if (ROOT / name).exists() else "warn", f"{name} " + ("found" if (ROOT / name).exists() else "not found"))
 
-    resume = ROOT / "data" / "resume.json"
+    try:
+        resume = Path(importlib.import_module("config.settings").RESUME_FILE)
+    except (Exception, SystemExit) as e:   # the profile loader exits with a message when the resume is missing
+        say("fail", "this profile's resume.json isn't available", str(e))
+        return files
+    label = f"{resume.parent.name}\\{resume.name}"
     if not resume.exists():
-        say("fail", "data\\resume.json not found")
+        say("fail", f"{label} not found")
     else:
         try:
             data = json.loads(resume.read_text(encoding="utf-8"))
@@ -120,9 +125,9 @@ def check_layout() -> list[Path]:
             problems = [f"empty or missing: {', '.join(need)}"] if need else []
             if not email:
                 problems.append("contact.email is missing")
-            say("warn" if problems else "ok", "data\\resume.json is valid JSON", "\n".join(problems))
+            say("warn" if problems else "ok", f"{label} is valid JSON", "\n".join(problems))
         except Exception as e:
-            say("fail", "data\\resume.json can't be read", str(e))
+            say("fail", f"{label} can't be read", str(e))
     return files
 
 
@@ -444,8 +449,8 @@ def check_git() -> None:
     else:
         say("ok", "No private files are tracked by git")
     ignore = (ROOT / ".gitignore").read_text(encoding="utf-8", errors="ignore") if (ROOT / ".gitignore").exists() else ""
-    absent = [p for p in ("data/", "browser_profile", "learned_answers.json", "*.sqlite", "__pycache__")
-              if p not in ignore]
+    absent = [p for p in ("data/", "browser_profile", "profiles/*/resume.json", "profiles/*/applications/",
+                          "profiles/*/applications.csv", "*.sqlite", "__pycache__") if p not in ignore]
     say("warn" if absent else "ok", ".gitignore " + ("is missing: " + ", ".join(absent) if absent else "covers the private files"))
 
 

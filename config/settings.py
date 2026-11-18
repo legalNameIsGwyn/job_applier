@@ -11,6 +11,7 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent  # the folder that contains
 
 DEFAULT_PROFILE = "software"   # the profile used when you don't pass --profile
 MIN_SCORE = 5
+ACTIVE_PROFILE = DEFAULT_PROFILE
 
 # A CSV of jobs to click through and apply to by hand, next to each profile's applications folder.
 CSV_LOG = True
