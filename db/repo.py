@@ -10,6 +10,7 @@ from db.models import Application, Job, JobScore, utcnow
 from db.session import (
     active_profile_name, create_tables, current_profile_id, get_engine, get_or_create_profile, session_scope,
 )
+from core.console import tag
 
 # match_score stored when scoring failed, so failures differ from a real 0 (auto-reject).
 FAILED_SCORE = -1.0
@@ -20,7 +21,7 @@ def init_db(db_path: str = DB_PATH) -> None:
     create_tables(get_engine(db_path))
     with session_scope(db_path) as s:
         get_or_create_profile(s, active_profile_name())
-    print(f"[DB] Initialized database at {db_path} (profile: {active_profile_name()})")
+    tag("DB", f"Initialized database at {db_path} (profile: {active_profile_name()})")
 
 
 def get_scored_urls(db_path: str = DB_PATH) -> set[str]:
@@ -133,4 +134,4 @@ def record_application(job_url: str, status: str, apply_url: str | None = None,
             app.ats = ats or app.ats
             app.note = note or app.note
             app.updated_at = utcnow()
-        return True
+        return True

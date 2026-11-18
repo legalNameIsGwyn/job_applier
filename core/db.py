@@ -4,6 +4,7 @@ import json
 import sqlite3
 
 from config.settings import DB_PATH  # edit the location in config/settings.py
+from core.console import tag
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -102,7 +103,7 @@ def init_db(db_path: str = DB_PATH) -> None:
         conn.commit()
     finally:
         conn.close()
-    print(f"[DB] Initialized database at {db_path}")
+    tag("DB", f"Initialized database at {db_path}")
 
 
 def get_scored_urls(db_path: str = DB_PATH) -> set[str]:

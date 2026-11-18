@@ -22,8 +22,8 @@ import db.tracking as tracking
 from config.settings import DB_PATH
 from db import ratings as R
 from db.queries import application_counts, get_candidates, get_jobs, status_counts, unfinished_applications
-from core.compat import compat_label
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
+from core.console import INDENT, cmd, fmt_score, job_block, paint, say, score_color, section, step, tag, wrap
 
 SUMMARY_DAYS = getattr(_settings, "SUMMARY_DAYS", 1)            # how far back "new" reaches
 SUMMARY_TOP = getattr(_settings, "SUMMARY_TOP", 10)             # best matches listed
@@ -74,56 +74,111 @@ def _apply_readiness(min_score, days, db_path):
 # ------------------------------------------------------------------------------ text
 
 
-def _job_line(job: dict) -> str:
-    salary = f"  [{job['salary']}]" if job.get("salary") else ""
-    label = compat_label(job)
-    compat = f"  ({label})" if label else ""
-    return f"  {job['match_score']:>4g}  {job['title'][:45]} - {job['company'][:25]}{compat}{salary}"
-
-
-def render_text(d: dict) -> str:
-    new, total = d["new_by_status"], d["total_by_status"]
-    when = "the last 24 hours" if d["days"] == 1 else f"the last {d['days']:g} days"
-    lines = ["=" * 60, f"SUMMARY  ({d['generated']})  profile: {d['profile']}", "=" * 60,
-             f"New in {when}: {sum(new.values())} job(s)  "
-             f"(scored {new.get('scored', 0)}, filtered {new.get('filtered', 0)}, "
-             f"duplicates {new.get('duplicate', 0)}, failed {new.get('scoring_failed', 0)})",
-             f"In the database: {sum(total.values())} job(s)  "
-             f"(scored {total.get('scored', 0)}, filtered {total.get('filtered', 0)}, "
-             f"duplicates {total.get('duplicate', 0)})"]
-
-    lines += ["", f"BEST NEW MATCHES (score {d['min_score']:g}+)"]
-    lines += [_job_line(j) + f"\n        {j['apply_url'] if (j['apply_url'] or '').startswith('http') else j['job_url']}"
-              for j in d["top_new"]] or ["  none"]
-
-    lines += ["", f"RECOMMENDED TO APPLY: {len(d['ready'])} job(s)  (python apply_jobs.py --top 3)"]
-    lines += [f"  {j['match_score']:>4g}  {j['title'][:40]} - {j['company'][:22]}  [{j['ats']}]" for j in d["ready"][:10]]
-    if d["blocked"]:
-        lines.append("CAN'T BE FILLED YET")
-        for reason, jobs in sorted(d["blocked"].items(), key=lambda kv: -len(kv[1])):
-            lines.append(f"  {len(jobs):>3}  {reason}")
-
+def _todo(d: dict) -> list[tuple[str, str]]:
+    """(what needs doing, the command that does it)."""
     todo = []
     if d["failed"]:
-        todo.append(f"{d['failed']} job(s) failed scoring: python -m tools.rescore --failed-only")
+        todo.append((f"{d['failed']} job(s) failed scoring", "python -m tools.rescore --failed-only"))
     if d["unfinished"]:
-        todo.append(f"{len(d['unfinished'])} application(s) opened but not finished: "
-                    "python apply_jobs.py --include-opened")
+        todo.append((f"{len(d['unfinished'])} application(s) opened but not finished",
+                     "python apply_jobs.py --include-opened"))
     for f in d.get("follow_ups", []):
-        todo.append(f"follow up with {f['company']} ({f['title']}), due {f['follow_up_on']}: python -m tools.track show {f['job_id']}")
+        todo.append((f"follow up with {f['company']} ({f['title']}), due {f['follow_up_on']}",
+                     f"python -m tools.track show {f['job_id']}"))
     if d.get("quiet"):
-        todo.append(f"{d['quiet']} application(s) with no answer for 14+ days: python -m tools.track list --stale 14")
+        todo.append((f"{d['quiet']} application(s) with no answer for 14+ days", "python -m tools.track list --stale 14"))
     if d["ratings"] < 10:
-        todo.append(f"only {d['ratings']} hand rating(s): python -m tools.rating (10+ tunes the scores, 50+ is steadier)")
+        todo.append((f"only {d['ratings']} hand rating(s); 10+ tunes the scores, 50+ is steadier", "python -m tools.rating"))
     elif d["unrated_scored"]:
-        todo.append(f"{d['unrated_scored']} scored job(s) not rated yet: python -m tools.rating")
-    lines += ["", "NEEDS YOU"] + ([f"  - {t}" for t in todo] or ["  nothing"])
+        todo.append((f"{d['unrated_scored']} scored job(s) not rated yet", "python -m tools.rating"))
+    return todo
+
+
+def _counts(counts: dict, keys) -> str:
+    return paint(" · ", "gray").join(f"{name} {paint(counts.get(key, 0), 'white', True)}" for key, name in keys)
+
+
+APP_COLORS = {"applied": "green", "opened": "yellow", "closed": "gray", "skipped": "gray", "interview": "magenta",
+              "offer": "lime", "rejected": "red"}
+
+
+def print_text(d: dict, already_shown: set[str] | None = None) -> None:
+    """The summary in the terminal, in the same column and colors as a pipeline run."""
+    new, total = d["new_by_status"], d["total_by_status"]
+    when = "the last 24 hours" if d["days"] == 1 else f"the last {d['days']:g} days"
+    step(None, "SUMMARY", right=f"{d['generated']} · {d['profile']}")
+    print()
+    say("new", f"{paint(sum(new.values()), 'white', True)} in {when} · "
+        + _counts(new, (("scored", "scored"), ("filtered", "filtered"), ("duplicate", "dupes"))
+                  + ((("scoring_failed", "failed"),) if new.get("scoring_failed") else ())))
+    say("total", f"{paint(sum(total.values()), 'white', True)} in the database · "
+        + _counts(total, (("scored", "scored"), ("filtered", "filtered"), ("duplicate", "dupes"))))
+
+    # Best new matches, in full. Jobs main.py just showed in stage 5 are only counted, not repeated.
+    shown = already_shown or set()
+    best = [j for j in d["top_new"] if j["job_url"] not in shown]
+    repeat = len(d["top_new"]) - len(best)
+    print()
+    print(section(f"BEST NEW MATCHES ({d['min_score']:g}+)",
+                  paint(f"{repeat} more shown under RESULTS above", "gray") if repeat else ""))
+    if not best:
+        print(INDENT + paint("none" if not repeat else "nothing else", "gray"))
+    for job in best:
+        print()
+        job_block(job, _mode(job, d["min_score"]))
+
+    print()
+    print(section("READY TO APPLY", f"{paint(len(d['ready']), 'white', True)} job(s)   {cmd('python apply_jobs.py --top 3')}"))
+    for j in d["ready"][:10]:
+        print(INDENT + paint(fmt_score(j["match_score"]), score_color(j["match_score"]), True) + "  "
+              + paint(j['title'][:38], "white", True) + paint(" · ", "gray") + f"{j['company'][:20]}  "
+              + paint("[", "gray") + paint(j["ats"], "magenta", True) + paint("]", "gray"))
+    if d["blocked"]:
+        print()
+        print(section("CAN'T BE FILLED YET"))
+        for reason, jobs in sorted(d["blocked"].items(), key=lambda kv: -len(kv[1])):
+            print(wrap(reason, INDENT + paint(str(len(jobs)).ljust(3), "yellow", True) + "  ", INDENT + " " * 5))
+
+    print()
+    print(section("NEEDS YOU"))
+    todo = _todo(d)
+    if not todo:
+        print(INDENT + paint("nothing", "gray"))
+    for what, command in todo:
+        print(wrap(what, INDENT + paint("•", "pink", True) + " ", INDENT + "  "))
+        print(INDENT + "  " + cmd(command))
 
     apps = d["applications"]
     if apps:
-        lines += ["", "APPLICATIONS  " + ", ".join(f"{k} {v}" for k, v in sorted(apps.items()))]
-    lines.append("=" * 60)
-    return "\n".join(lines)
+        print()
+        print(section("APPLICATIONS", paint(" · ", "gray").join(
+            f"{paint(k, APP_COLORS.get(k, 'white'))} {paint(v, 'white', True)}" for k, v in sorted(apps.items()))))
+
+
+def _mode(job: dict, min_score: float) -> str | None:
+    if (job.get("match_score") or 0) < min_score:
+        return None
+    try:
+        from documents.application_maker import choose_mode
+        return choose_mode(job)[0]
+    except Exception:
+        return None
+
+
+def render_text(d: dict) -> str:
+    """The summary as plain text (no colors), e.g. to save or send somewhere."""
+    import contextlib
+    import io
+
+    import core.console as console
+    buf, was = io.StringIO(), console.COLOR
+    console.COLOR = False
+    try:
+        with contextlib.redirect_stdout(buf):
+            print_text(d)
+    finally:
+        console.COLOR = was
+    return buf.getvalue()
 
 
 # ------------------------------------------------------------------------------ html
@@ -182,14 +237,14 @@ td.s{{font-weight:700;width:3rem}}span{{color:#666;font-size:.9em}}.none{{color:
 
 
 def print_summary(days: float = SUMMARY_DAYS, top: int = SUMMARY_TOP, min_score: float = MIN_SCORE,
-                  html_report: bool = False, open_it: bool = False) -> None:
+                  html_report: bool = False, open_it: bool = False, already_shown: set[str] | None = None) -> None:
     data = gather(days, top, min_score)
-    print("\n" + render_text(data))
+    print_text(data, already_shown)
     if html_report:
         SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
         path = SUMMARY_DIR / f"summary_{datetime.now():%Y-%m-%d_%H%M}.html"
         path.write_text(render_html(data), encoding="utf-8")
-        print(f"[SUMMARY] Saved {path}")
+        tag("SUMMARY", f"Saved {path}")
         if open_it:
             webbrowser.open(path.resolve().as_uri())
 
