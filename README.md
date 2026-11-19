@@ -436,6 +436,8 @@ To change a color:
 
 A line you delete from either dictionary falls back to its default. A profile can override them like any other setting.
 
+The job block starts with a header: title, then company and location, then `suitability` (the 0-10 score), `compat` (the detailed percentage; the rough one only when there is no detailed one), the site, the documents mode and the pay. A hard requirement you don't meet is shown as `✗ blocker` under it. The lines below only add what the header doesn't say: `about`, `requires`, `has`, `gaps`, `notes` and the link. A requirement you're missing is listed once, under `gaps`.
+
 ---
 
 ## Project layout
