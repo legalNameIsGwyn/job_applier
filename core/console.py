@@ -5,6 +5,7 @@ ANSI colors that read well on dark and light terminals; they switch off when the
 terminal (piped to a file) or when NO_COLOR is set.
 """
 
+import logging
 import os
 import re
 import shutil
@@ -90,18 +91,16 @@ def cmd(text: str) -> str:
 
 
 def banner(profile: str, mode: str, model: str, name: str, min_score, when: str) -> None:
-    """The box at the top of a run."""
-    rows = [("profile", profile), ("mode", mode), ("model", model), ("resume", name),
-            ("documents", f"for jobs scoring {min_score:g}+"), ("started", when)]
-    inner = max(len("JOB SCRAPER"), *(11 + len(str(v)) for _, v in rows)) + 4
-    edge = lambda s: paint(s, "blue", True)
+    """The slim header at the top of a run: a title, then two short rows of settings."""
+    rows = [
+        [("profile", profile), ("mode", mode), ("model", model)],
+        [("resume", name), ("docs", f"{min_score:g}+"), ("started", when)],
+    ]
+    dot = paint("  ·  ", "gray")
     print()
-    print(" " + edge("┏" + "━" * inner + "┓"))
-    print(" " + edge("┃") + "  " + paint("JOB SCRAPER".ljust(inner - 2), "white", True) + edge("┃"))
-    for key, value in rows:
-        text = paint(key.ljust(11), "gray") + paint(str(value), "white")
-        print(" " + edge("┃") + "  " + text + " " * (inner - 2 - visible_len(text)) + edge("┃"))
-    print(" " + edge("┗" + "━" * inner + "┛"))
+    print(INDENT + paint("JOB SCRAPER", "white", True))
+    for row in rows:
+        print(INDENT + dot.join(paint(k, "gray") + " " + paint(str(v), "white") for k, v in row))
 
 
 def step(n, title: str, desc: str = "", right: str = "") -> None:
@@ -162,12 +161,21 @@ def note(text: str) -> None:
     print(wrap(text, color="gray"))
 
 
-def tag(name: str, text: str = "") -> None:
-    """   [SCRAPER] text   with the tag in its own color."""
+def tag(name: str, text: str = "", kind: str | None = None) -> None:
+    """   [SCRAPER] text   with the tag in its own color.
+
+    kind "bad" or "warn" adds a red ✗ or a yellow ⚠ after the tag and colors the text to match.
+    """
     color = TAG_COLORS.get(name.upper(), "white")
     label = paint("[", "gray") + paint(name.upper(), color, True) + paint("]", "gray")
-    first = INDENT + label + " "
-    print(wrap(text, first, INDENT + " " * (len(name) + 3)) if text else INDENT + label)
+    first, rest = INDENT + label + " ", INDENT + " " * (len(name) + 3)
+    if not text:
+        print(INDENT + label)
+    elif kind in _DECISIONS:
+        mark, mark_color = _DECISIONS[kind]
+        print(wrap(text, first + paint(mark, mark_color, True) + " ", rest + "  ", color=mark_color))
+    else:
+        print(wrap(text, first, rest))
 
 
 def section(title: str, extra: str = "") -> str:
@@ -288,3 +296,26 @@ def job_block(job: dict, mode: str | None = None) -> None:
 
     for flag in eligibility_flags(job.get("title", ""), desc):
         decision("warn", f"eligibility: {flag}")
+
+# ------------------------------------------------------------------------- library log messages
+
+
+class _LibraryLogs(logging.Handler):
+    """Shows warnings and errors from jobspy as [SCRAPER] lines instead of 'ERROR:jobspy.linkedin:...'."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            site = record.name.split(".", 1)[1] if "." in record.name else record.name
+            tag("SCRAPER", f"{site}: {record.getMessage()}", "bad" if record.levelno >= logging.ERROR else "warn")
+        except Exception:
+            self.handleError(record)
+
+
+def route_library_logs() -> None:
+    """Send jobspy's own log messages through tag(). Its wording is kept; every message is shown."""
+    lib = logging.getLogger("jobspy")
+    lib.handlers = [h for h in lib.handlers if not isinstance(h, _LibraryLogs)] + [_LibraryLogs(logging.WARNING)]
+    lib.propagate = False   # otherwise the root handler (core/scorer.py) prints each message a second time
+
+
+route_library_logs()
