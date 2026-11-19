@@ -424,7 +424,17 @@ Prompts are Python format strings with `{placeholders}` (listed in a comment abo
 that names the file, the prompt and the allowed placeholders. Setting precedence: `config/` defaults, then the
 profile's parent, then the profile.
 
-`CONSOLE_COLOR` and `CONSOLE_UNICODE` in `config/settings.py` control the look of the console output. Both default to automatic: colors only appear in a terminal (and never when `NO_COLOR` is set), and symbols fall back to plain ASCII if the terminal can't show them. `python -m core.console` prints a sample so you can check how it looks.
+### Console colors
+
+Colors only appear in a terminal, never when `NO_COLOR` is set. `CONSOLE_COLOR` in `config/settings.py` forces them on or off, and `CONSOLE_LINKS` controls the clickable "open posting" link (otherwise the full URL is shown).
+
+To change a color:
+
+1. `python -m core.console --colors` lists the color names (add `all` for the numbers 0-255).
+2. In `config/settings.py`, edit `CONSOLE_COLORS` (parts of the output) or `CONSOLE_TAG_COLORS` (the `[TAG]` labels). A value is a name, a number 0-255, or `"#rrggbb"`. `"auto"` (suitability, compat) means green / yellow / gray by how high the number is.
+3. `python -m core.console` prints a sample of every kind of output so you can check the result without running the pipeline.
+
+A line you delete from either dictionary falls back to its default. A profile can override them like any other setting.
 
 ---
 
