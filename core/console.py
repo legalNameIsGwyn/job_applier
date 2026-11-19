@@ -508,10 +508,10 @@ def colors(everything: bool = False) -> None:
     print()
 
 
+route_library_logs()
+
 if __name__ == "__main__":
     if "--colors" in sys.argv:
         colors("all" in sys.argv)
     else:
         demo()
-
-route_library_logs()

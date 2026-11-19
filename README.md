@@ -175,8 +175,10 @@ reason, so they're never re-fetched. All the rules come from the active profile.
 
 ### Scoring (`core\scorer.py`, `core\calibration.py`)
 
-1. **Hard rejects in code:** postings matching `BLOCKER_PATTERNS` (clearance, US-citizen-only...) score 0 without
-   calling the model (unless they say "no clearance required").
+1. **Hard rejects in code:** postings matching `BLOCKER_PATTERNS` (security clearance wordings such as "Secret-level clearance",
+   "TS clearance", "Public Trust", "access to classified information"; and "U.S. citizen" wordings) score 0 without calling
+   the model. The reason quotes the words that matched. They are skipped when the posting says "no clearance required", and a
+   citizenship phrase that also says "or permanent resident / green card" is not treated as a blocker.
 2. **Model score:** the local model rates the job 0-10 against your resume with the profile's `SCORING_PROMPT`,
    returning JSON (`match_score`, `matched_skills`, `gaps`) constrained by a schema. A failed job is recorded
    (score -1) and retried next run, or with `rescore --failed-only`. The run stops after

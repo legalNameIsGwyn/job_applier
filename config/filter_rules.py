@@ -31,18 +31,30 @@ MAX_MIN_YEARS = 2
 # internships, projects and school are not counted). Or set a number, e.g. 1.5.
 MY_YEARS_EXPERIENCE = None
 
-# --------------------------------------------------- scored 0 without asking the model
 # Postings matching any of these need a clearance or US citizenship.
+# A pattern with "citizen" in it is a citizenship rule; the rest are clearance rules.
 BLOCKER_PATTERNS = [
+    # ---- clearance
     r"security clearance",
     r"\bts\s*/\s*sci\b",
     r"top[- ]secret",
-    r"secret clearance",
-    r"active clearance",
+    r"\b(secret|ts)([- ]level)? (security )?clearance",
+    r"\bsecret (or|and) (higher|above)",
+    r"\binterim secret",
+    r"active (dod )?clearance",
     r"clearance (is )?required",
+    r"clearance( level)?\s*[:\-]\s*(secret|top secret|ts|confidential|public trust)",
+    r"clearance[- ]eligible",
+    r"(hold|possess|maintain|obtain)( and maintain)? (an?|the) (active |current |valid )?(dod )?clearance",
+    r"(hold|obtain|eligible for|able to obtain) (an?|the) public trust",
+    r"public trust (position|clearance|determination|investigation)",
+    r"access to classified (information|material|materials|systems|networks)",
     r"polygraph",
+    # ---- citizenship
     r"(u\.?s\.?|united states) citizen(ship)?\s+(is\s+)?(required|only)",
     r"must be (a )?(u\.?s\.?|united states) citizen",
+    r"\bcitizen of the (u\.?s\.?|united states)",
+    r"requires? (u\.?s\.?|united states) citizenship",
     r"citizenship (is )?required",
     r"u\.?s\.? citizens? only",
 ]

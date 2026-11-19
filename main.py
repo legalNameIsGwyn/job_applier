@@ -241,8 +241,7 @@ async def main(
     print()
     say("found", f"{len(df)} unique jobs: {len(df) - len(todo)} already scored earlier, {len(todo)} new")
 
-    # ---- 2 PRE-FILTER: title / company rules. These need no description, so they run
-    # BEFORE any description is fetched and save those requests.
+    # ---- 2 PRE-FILTER: title / company rules. These need no description, so they run BEFORE any description is fetched and save those requests.
     step(2, "PRE-FILTER", "Title and company rules, checked before any description is downloaded.")
     filtered_count, kept, shown = 0, [], 0
     for idx, row in todo.iterrows():
@@ -303,6 +302,7 @@ async def main(
 
         # Filter stage 2: needs the description (years of experience required)
         reason = applicant_reason(row, job) or filter_reason(job["title"], job["company"], job["description"])
+        
         if reason:
             decision("bad", f"rejected: {short_reason(reason)}")
             save_filtered(job, reason)
