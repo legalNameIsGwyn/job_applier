@@ -223,18 +223,35 @@ def section(title: str, extra: str = "") -> str:
 # ----------------------------------------------------------------------------------- job blocks
 
 
-def _field(label: str, value: str, color: str | None = None, bold: bool = False, w: int | None = None) -> str:
-    first = INDENT + paint(label.ljust(LABEL), "gray") + " "
-    return wrap(value, first, INDENT + " " * (LABEL + 1), color=color, bold=bold, w=w)
+def _field(label: str, value: str, color: str, bold: bool = False) -> str:
+    """   label    value...   The label is bold in the section's color, the text wraps under itself."""
+    first = INDENT + paint(label.ljust(LABEL), color, True) + " "
+    return wrap(value, first, INDENT + " " * (LABEL + 1), color=color, bold=bold)
 
 
-def _bullets(label: str, items: list[str], color: str | None = None, w: int | None = None) -> list[str]:
+def _bullets(label: str, items: list[str], color: str) -> str:
     """First item next to the label, the rest as '→ item' lines below it."""
     pad = INDENT + " " * (LABEL + 1)
-    out = [_field(label, items[0], color, w=w)]
-    for item in items[1:]:
-        out.append(wrap(item, pad + paint("→ ", "gray"), pad + "  ", color=color, w=w))
-    return out
+    out = [_field(label, items[0], color)]
+    out += [wrap(item, pad + paint("→ ", color), pad + "  ", color=color) for item in items[1:]]
+    return "\n".join(out)
+
+
+def _flow(parts: list[list[tuple[str, str, bool]]]) -> None:
+    """Print parts (each a list of (text, color, bold)) on one line separated by ' · ', starting a new line when full."""
+    sep, lines, cur, used = paint("  ·  ", "gray"), [], [], 0
+    for part in parts:
+        plain = "".join(text for text, _, _ in part)
+        need = len(plain) + (5 if cur else 0)
+        if cur and len(INDENT) + used + need > WIDTH:
+            lines.append(cur)
+            cur, used, need = [], 0, len(plain)
+        cur.append("".join(paint(text, color, bold) for text, color, bold in part))
+        used += need
+    if cur:
+        lines.append(cur)
+    for line in lines:
+        print(INDENT + sep.join(line))
 
 
 def _site(job: dict) -> str:
@@ -244,21 +261,51 @@ def _site(job: dict) -> str:
     return parts[-2] if len(parts) >= 2 else host
 
 
-def _gaps(job: dict) -> list[str]:
-    """The scorer's gaps plus the detailed check's missing requirements, without repeats. HARD ones first."""
-    out, seen = [], set()
+_STOP = {"a", "an", "and", "or", "of", "the", "to", "in", "with", "for", "on", "at", "as", "by", "is", "are", "be", "you", "your"}
+
+
+def _key_words(text: str) -> set[str]:
+    """The meaningful words of a line, cut to 6 letters so 'system' and 'systems' count as one."""
+    text = re.sub(r"\(\s*\d+\s*\)", " ", text.lower())          # "Two (2) years" -> "two years"
+    return {w[:6] for w in re.findall(r"[a-z0-9+#]+", text) if w not in _STOP and len(w) > 1}
+
+
+def _same(a: str, b: str) -> bool:
+    """True when two lines say (nearly) the same thing: 80% of the shorter one's words are in the other."""
+    ka, kb = _key_words(a), _key_words(b)
+    return min(len(ka), len(kb)) >= 3 and len(ka & kb) / min(len(ka), len(kb)) >= 0.8
+
+
+def _cut(text: str, n: int) -> str:
+    """At most n characters, cut at a word boundary and ended with …   A trailing '...' becomes … too."""
+    text = " ".join(str(text).split())
+    clipped = text.endswith(("...", "…"))
+    if clipped:
+        text = text.rstrip(".…").rstrip(" ,;:-–(")
+    if len(text) > n:
+        text = text[: n - 1].rsplit(" ", 1)[0].rstrip(" ,;:-–(")
+        clipped = True
+    return text + ("…" if clipped else "")
+
+
+def _gaps(job: dict) -> tuple[list[str], list[str]]:
+    """(hard blockers, other gaps): the detailed check's missing requirements plus the scorer's gaps, no repeats."""
+    hard, other = [], []
+
+    def seen_already(text: str) -> bool:
+        low = text.lower()
+        return any(_same(text, s) or low in s.lower() or s.lower() in low for s in hard + other)
+
     missing = [m for m in (job.get("compat_missing") or []) if isinstance(m, dict) and m.get("text")]
     for m in sorted(missing, key=lambda m: not m.get("hard")):
-        key = m["text"].strip().lower()
-        if key not in seen:
-            seen.add(key)
-            out.append(("HARD " if m.get("hard") else "") + m["text"].strip())
+        text = m["text"].strip()
+        if not seen_already(text):
+            (hard if m.get("hard") else other).append(text)
     for g in job.get("gaps") or []:
-        key = str(g).strip().lower()
-        if key and key not in seen and not any(key in s or s in key for s in seen):
-            seen.add(key)
-            out.append(str(g).strip())
-    return out[:5]
+        text = str(g).strip()
+        if text and not seen_already(text):
+            other.append(text)
+    return hard, other[:4]
 
 
 def _short_note(note: str) -> str:
@@ -269,70 +316,92 @@ def _short_note(note: str) -> str:
     return note
 
 
+def _hyperlinks() -> bool:
+    """Does the terminal show clickable links? CONSOLE_LINKS in config/settings.py overrides the automatic check."""
+    forced = getattr(_settings, "CONSOLE_LINKS", None)
+    if forced is not None:
+        return bool(forced)
+    return COLOR and bool(os.environ.get("WT_SESSION") or os.environ.get("TERM_PROGRAM") in ("vscode", "iTerm.app", "WezTerm"))
+
+
+def link(url: str, text: str = "open posting ↗") -> str:
+    """A clickable `text` where the terminal supports it (Windows Terminal, VS Code, iTerm); otherwise the full URL."""
+    if _hyperlinks():
+        shown = paint(text, role("link"), True)
+        return f"\033]8;;{url}\033\\{shown}\033]8;;\033\\"
+    return paint(url, role("link"))
+
+
 def job_block(job: dict, mode: str | None = None) -> None:
-    """A job's full picture: score, details, a short description, requirements, gaps and notes.
+    """A job's full picture: a header (title, company, place, numbers), then what is not in the header.
 
     Uses only what is already stored (no model calls). Lines with nothing to show are left out.
+    Each part has its own color; change them in CONSOLE_COLORS (config/settings.py).
     """
     from core.job_info import eligibility_flags, posting_summary, salary_from_text, special_notes, summary_points
 
-    w = WIDTH
     desc = job.get("description") or ""
     url = job["apply_url"] if (job.get("apply_url") or "").startswith("http") else job.get("job_url", "")
-    job_head(job.get("title", ""), job.get("company", ""), url)
+    label = role("label")
 
-    score = job.get("match_score")
-    color = score_color(score)
-    detail, rough = job.get("compat_detail_pct"), job.get("compat_pct")
-    if detail is not None:
-        compat = f"{detail:g}% compatibility" + (" (capped)" if job.get("compat_capped") else "")
-        compat += f" ({rough:g}% rough)" if rough is not None else ""
-    elif rough is not None:
-        compat = f"{rough:g}% compatibility (rough)"
+    # ---- header
+    print(wrap(job.get("title", ""), color=role("job_title"), bold=True))
+    _flow([[(text, role(name), False)] for name, text in (("company", job.get("company")), ("location", job.get("location"))) if text])
+
+    score, detail, rough = job.get("match_score"), job.get("compat_detail_pct"), job.get("compat_pct")
+    numbers = [[("suitability ", label, False),
+                (f"{fmt_score(score)}/10", role("suitability", score_color(score)), True)]]
+    pct = detail if detail is not None else rough
+    if pct is None:
+        numbers.append([("compat ", label, False), ("n/a", "gray", False)])
     else:
-        compat = "compatibility n/a"
-    print(INDENT + paint("score".ljust(LABEL), "gray") + " "
-          + paint(f"{fmt_score(score)}/10", color, True) + paint(" suitability", color)
-          + paint(" · ", "gray") + paint(compat, score_color((detail if detail is not None else rough or 0) / 10)))
-
+        text = f"{pct:g}%" + (" (capped)" if detail is not None and job.get("compat_capped") else "") \
+            + ("" if detail is not None else " (rough)")
+        numbers.append([("compat ", label, False), (text, role("compat", score_color(pct / 10)), False)])
+    if _site(job):
+        numbers.append([("site ", label, False), (_site(job), role("site"), False)])
+    if mode:
+        numbers.append([("docs ", label, False), (mode, role("docs"), False)])
     salary = job.get("salary") or salary_from_text(desc)
-    details = [p for p in (job.get("location"), _site(job), f"{mode} documents" if mode else "") if p]
-    if details:
-        print(INDENT + paint("details".ljust(LABEL), "gray") + " "
-              + paint(" · ", "gray").join(paint(p, "white") for p in details))
     if salary:
-        print(INDENT + paint("salary".ljust(LABEL), "gray") + " " + paint(salary, "lime", True))
+        numbers.append([("pay ", label, False), (salary, role("salary"), True)])
+    _flow(numbers)
 
+    hard, gaps = _gaps(job)
+    if hard:
+        mark = paint("✗ blocker  ", role("blocker"), True)
+        print(wrap(", ".join(hard), INDENT + mark, INDENT + " " * 11, color=role("blocker")))
+
+    # ---- body: only what the header does not already say
+    print()
     about = posting_summary(desc, 2)
     if about:
-        about = about if len(about) <= 260 else about[:257].rsplit(" ", 1)[0] + "..."
-        print(_field("about", about, w=w))
+        print(_field("about", _cut(about, 260), role("about")))
 
-    reqs = summary_points(desc, per_section=3, width=110).get("Requirements", [])
+    reqs = [_cut(r, 120) for r in summary_points(desc, per_section=3, width=140).get("Requirements", [])]
+    reqs = [r for r in reqs if not any(_same(r, g) for g in hard + gaps)]    # a missing one is listed under gaps
     if reqs:
-        print("\n".join(_bullets("requires", reqs, w=w)))
+        print(_bullets("requires", reqs, role("requires")))
 
     has = [str(s) for s in (job.get("matched_skills") or [])][:6]
     if has:
-        print(_field("has", ", ".join(has), "green", w=w))
+        print(_field("has", ", ".join(has), role("has")))
 
-    gaps = _gaps(job)
     if gaps:
-        pad = INDENT + " " * (LABEL + 1)
-        for i, g in enumerate(gaps):
-            hard = g.startswith("HARD ")
-            text = g[5:] if hard else g
-            lead = INDENT + paint("gaps".ljust(LABEL), "gray") + " " if i == 0 else pad + paint("→ ", "gray")
-            if hard:
-                lead += paint("HARD ", "red", True)
-            print(wrap(text, lead, pad + "  ", color="red", w=w))
+        print(_bullets("gaps", gaps, role("gaps")))
 
+    place = (job.get("location") or "").lower()
     notes = [_short_note(n) for n in special_notes(job.get("title", ""), job.get("location", ""), desc)]
+    notes = [n for n in notes if n.lower() not in place]
     if notes:
-        print(_field("notes", " · ".join(notes), "yellow", w=w))
+        print(_field("notes", " · ".join(notes), role("notes")))
 
-    for flag in eligibility_flags(job.get("title", ""), desc):
-        decision("warn", f"eligibility: {flag}")
+    if url:
+        print(INDENT + paint("link".ljust(LABEL), role("link"), True) + " " + link(url))
+
+    if not hard:
+        for flag in eligibility_flags(job.get("title", ""), desc):
+            decision("warn", f"eligibility: {flag}")
 
 # ------------------------------------------------------------------------- library log messages
 
