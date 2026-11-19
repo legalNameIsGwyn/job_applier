@@ -12,6 +12,8 @@ import shutil
 import sys
 import textwrap
 
+import config.settings as _settings
+
 if os.name == "nt":
     os.system("")   # switches ANSI colors on in older Windows consoles
 try:
@@ -22,29 +24,64 @@ except Exception:
 INDENT = "   "
 LABEL = 8                                    # say() labels are padded to this width
 WIDTH = max(74, min(100, shutil.get_terminal_size((74, 24)).columns - 2))   # stage rules and wrapped text
-COLOR = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+_force = getattr(_settings, "CONSOLE_COLOR", None)   # True = always color, False = never (config/settings.py)
+COLOR = bool(_force) if _force is not None else sys.stdout.isatty() and not os.environ.get("NO_COLOR")
 
 _CODES = {
     "red": "91", "green": "92", "yellow": "93", "blue": "94", "magenta": "95", "cyan": "96",
     "white": "97", "gray": "90", "orange": "38;5;208", "gold": "38;5;220", "pink": "38;5;213",
-    "lime": "38;5;118", "sky": "38;5;117",
+    "lime": "38;5;118", "sky": "38;5;117", "teal": "38;5;80", "lavender": "38;5;183", "mint": "38;5;114",
 }
 
-# Color of each [TAG] label. Anything not listed is white.
+# What each part of the output is colored. These are the defaults; CONSOLE_COLORS in config/settings.py
+# overrides any of them. A color is a name from `python -m core.console --colors`, a number 0-255, or "#rrggbb".
+# "auto" (suitability, compat) means green / yellow / gray depending on how high the number is.
+
+DEFAULT_COLORS = {
+    "heading": "white", "label": "gray", "value": "white", "rule": "blue",
+    "job_title": "white", "company": "sky", "location": "teal", "suitability": "auto", "compat": "auto",
+    "site": "pink", "docs": "lavender", "salary": "lime", "blocker": "red",
+    "about": "blue", "requires": "gold", "has": "green", "gaps": "orange", "notes": "magenta", "link": "gray",
+}
+
+COLORS = {**DEFAULT_COLORS, **getattr(_settings, "CONSOLE_COLORS", {})}
+
+# Color of each [TAG] label. Anything not listed is white. CONSOLE_TAG_COLORS in config/settings.py overrides.
+
 TAG_COLORS = {
     "SCRAPER": "cyan", "FILTER": "yellow", "SCORER": "blue", "PIPELINE": "blue", "DEDUPE": "gray",
     "COMPAT": "sky", "DOCS": "magenta", "APPLY": "green", "BRIDGE": "orange", "CSV": "gold",
     "SUMMARY": "white", "TRACK": "pink",
 }
 
+TAG_COLORS.update({k.upper(): v for k, v in getattr(_settings, "CONSOLE_TAG_COLORS", {}).items()})
+
 _DECISIONS = {"ok": ("✔", "green"), "bad": ("✗", "red"), "skip": ("≡", "gray"), "warn": ("⚠", "yellow")}
 _ANSI = re.compile(r"\033\[[0-9;]*m")
+
+
+def _code(color) -> str:
+    """ANSI code for a color: a name from _CODES, a number 0-255, or '#rrggbb'. Anything else prints as white."""
+    text = str(color).strip()
+    if text in _CODES:
+        return _CODES[text]
+    if text.isdigit() and int(text) <= 255:
+        return f"38;5;{int(text)}"
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", text):
+        return "38;2;{};{};{}".format(*(int(text[i:i + 2], 16) for i in (1, 3, 5)))
+    return _CODES["white"]
+
+
+def role(name: str, auto: str = "white") -> str:
+    """The color set for a part of the output (DEFAULT_COLORS, CONSOLE_COLORS); 'auto' gives the color passed in."""
+    color = COLORS.get(name, DEFAULT_COLORS.get(name, "white"))
+    return auto if str(color) == "auto" else color
 
 
 def paint(text, color: str, bold: bool = False) -> str:
     if not COLOR:
         return str(text)
-    return f"\033[{'1;' if bold else ''}{_CODES[color]}m{text}\033[0m"
+    return f"\033[{'1;' if bold else ''}{_code(color)}m{text}\033[0m"
 
 
 def visible_len(text: str) -> int:
@@ -98,9 +135,9 @@ def banner(profile: str, mode: str, model: str, name: str, min_score, when: str)
     ]
     dot = paint("  ·  ", "gray")
     print()
-    print(INDENT + paint("JOB SCRAPER", "white", True))
+    print(INDENT + paint("JOB SCRAPER", role("heading"), True))
     for row in rows:
-        print(INDENT + dot.join(paint(k, "gray") + " " + paint(str(v), "white") for k, v in row))
+        print(INDENT + dot.join(paint(k, role("label")) + " " + paint(str(v), role("value")) for k, v in row))
 
 
 def step(n, title: str, desc: str = "", right: str = "") -> None:
@@ -109,8 +146,8 @@ def step(n, title: str, desc: str = "", right: str = "") -> None:
     tail = f" {right}" if right else ""
     fill = max(3, WIDTH - len(head) - len(tail))
     print()
-    print(paint(" ━━ ", "blue", True) + paint(head[4:], "white", True)
-          + paint("━" * fill, "blue", True) + paint(tail, "gray"))
+    print(paint(" ━━ ", role("rule"), True) + paint(head[4:], role("heading"), True)
+          + paint("━" * fill, role("rule"), True) + paint(tail, "gray"))
     if desc:
         print()
         print(wrap(desc, color="gray"))
@@ -153,7 +190,7 @@ def decision(kind: str, text: str) -> None:
 
 def say(label: str, text: str, color: str | None = None) -> None:
     """   found    84 unique jobs ...   (label gray, padded to LABEL)"""
-    first = INDENT + paint(label.ljust(LABEL), "gray") + " "
+    first = INDENT + paint(label.ljust(LABEL), role("label")) + " "
     print(wrap(text, first, INDENT + " " * (LABEL + 1), color=color))
 
 
@@ -180,7 +217,7 @@ def tag(name: str, text: str = "", kind: str | None = None) -> None:
 
 def section(title: str, extra: str = "") -> str:
     """A bold heading inside a stage, e.g. 'BEST NEW MATCHES (5+)'."""
-    return INDENT + paint(title, "white", True) + (f"  {extra}" if extra else "")
+    return INDENT + paint(title, role("heading"), True) + (f"  {extra}" if extra else "")
 
 
 # ----------------------------------------------------------------------------------- job blocks
@@ -317,5 +354,95 @@ def route_library_logs() -> None:
     lib.handlers = [h for h in lib.handlers if not isinstance(h, _LibraryLogs)] + [_LibraryLogs(logging.WARNING)]
     lib.propagate = False   # otherwise the root handler (core/scorer.py) prints each message a second time
 
+# ------------------------------------------------------------------------------------- preview
+
+SAMPLE_JOB = {
+    "title": "Intermediate Developer (Web Content Administrator)",
+    "company": "Example Tech Solutions, Inc",
+    "location": "Springfield, VA, USA",
+    "job_url": "https://careers.example.com/jobs/12345",
+    "apply_url": None,
+    "match_score": 6.0, "compat_pct": 76.9, "compat_detail_pct": 41.7, "compat_capped": False,
+    "compat_missing": [
+        {"text": "U.S. citizen", "hard": True, "required": True},
+        {"text": "Three years of experience with HTML, jQuery, Web Services, and SharePoint Designer", "hard": False},
+        {"text": "Experience working with end users for requirements gathering", "hard": False},
+    ],
+    "matched_skills": ["HTML5", "JavaScript", "SharePoint", "Manual Testing", "Quality Assurance"],
+    "gaps": ["Two years of experience developing and implementing workflow systems"],
+    "salary": "$55k-$70k/yr",
+    "description": (
+        "Example Tech Solutions specializes in the delivery of professional business and information management "
+        "services. We offer government and commercial clients a comprehensive portfolio of services that identify, "
+        "design and deliver technology solutions for their teams.\n\n"
+        "Requirements\n"
+        "- Associate's degree in a technical or related field, or an Information Technology (IT) software "
+        "development certification\n"
+        "- Three (3) years of experience with HyperText Markup Language (HTML), jQuery, Web Services, and "
+        "SharePoint Designer\n"
+        "- Two (2) years of experience developing and implementing workflow systems\n\n"
+        "This is a contract position. U.S. citizenship is required.\n"
+    ),
+}
+
+
+def demo() -> None:
+    """python -m core.console   Prints every kind of output once, so you can check colors without running the pipeline."""
+    from datetime import datetime
+
+    banner("software", "SEMI-AUTO", "qwen2.5:7b", "Jane Doe", 5, datetime.now().strftime("%a %Y-%m-%d %H:%M"))
+    step(1, "SCRAPE", "Searching linkedin, indeed for 2 search term(s) in Norfolk, VA.")
+    print()
+    for name in TAG_COLORS:
+        tag(name, f"{name.title()} lines look like this")
+    logging.getLogger("jobspy.linkedin").error("response status code 429 (blocked: use a proxy)")
+    logging.getLogger("jobspy.linkedin").warning("empty page at start=20 (the end of the results, or throttled)")
+
+    step(3, "SCORE", "One line per job.")
+    print()
+    job_head("Junior Software Engineer", "Example Tech Solutions, Inc", "https://careers.example.com/jobs/1")
+    decision("ok", "scored: 7.4/10 suitability")
+    decision("bad", "filtered: senior-level title ('Senior')")
+    decision("skip", "duplicate: same posting as one already saved")
+    decision("warn", "documents: no employer link found")
+    say("found", "84 unique jobs across 2 sites, 12 new")
+    note("Gray text explains a section.")
+
+    step(5, "RESULTS", right="sample job")
+    print()
+    print(section("BEST NEW MATCHES (5+)", paint("1 shown", "gray")))
+    print()
+    job_block(SAMPLE_JOB, "bridge")
+
+    print()
+    print(section("COLORS IN USE", paint("change them in CONSOLE_COLORS, config/settings.py", "gray")))
+    for name in DEFAULT_COLORS:
+        shown = role(name, "gray")
+        text = f"{name.ljust(12)} {COLORS.get(name, DEFAULT_COLORS[name])}"
+        auto = "  (green / yellow / gray by the number)" if str(COLORS.get(name)) == "auto" else ""
+        print(INDENT + paint("████", shown) + "  " + text + paint(auto, "gray"))
+    print()
+
+
+def colors(everything: bool = False) -> None:
+    """python -m core.console --colors   Lists the color names (add 'all' for the numbers 0-255 too)."""
+    print()
+    print(section("COLOR NAMES", paint("use them in CONSOLE_COLORS and CONSOLE_TAG_COLORS (config/settings.py)", "gray")))
+    for name in _CODES:
+        print(INDENT + paint("████", name) + "  " + name)
+    print()
+    print(wrap('Or a number 0-255 (add "all" to list them), or "#rrggbb" for any color.', color="gray"))
+    if everything:
+        print()
+        for start in range(0, 256, 12):
+            print(INDENT + "".join(paint("██", n) + f" {n:<4}" for n in range(start, min(start + 12, 256))))
+    print()
+
+
+if __name__ == "__main__":
+    if "--colors" in sys.argv:
+        colors("all" in sys.argv)
+    else:
+        demo()
 
 route_library_logs()

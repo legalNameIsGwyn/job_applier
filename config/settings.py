@@ -128,9 +128,41 @@ TAILOR_AUTO_BRIDGE_BELOW = 70       # compatibility under this uses bridge
 TAILOR_AUTO_BOILERPLATE_BELOW = 30  # compatibility under this uses boilerplate
 
 # Console look: None = automatic (colors only in a terminal, symbols only if it can show them)
-CONSOLE_COLOR = None     # True = always color, False = never
-CONSOLE_UNICODE = None   # False = plain ASCII symbols (+ x = !) if you see odd characters
-CONSOLE_DETAIL_COLOR = 134   # a name from --colors, or any number 0-255, e.g. 141
+# Console look
+CONSOLE_COLOR = None   # None = automatic (colors only in a terminal), True = always color, False = never
+CONSOLE_LINKS = None   # None = automatic, True = clickable "open posting" links, False = always show the full URL
+
+# Colors. Each value is a name from `python -m core.console --colors`, a number 0-255, or "#rrggbb".
+# "auto" (suitability, compat) = green / yellow / gray depending on how high the number is.
+# See your changes without running the pipeline:   python -m core.console
+
+CONSOLE_COLORS = {
+    "heading": "white",       # JOB SCRAPER, stage titles, section titles
+    "label": "gray",          # profile, mode, suitability, compat ...
+    "value": "white",         # the values next to those labels
+    "rule": "blue",           # the line after a stage title
+    "job_title": "white",     # job block: the title
+    "company": "sky",         # job block: company
+    "location": "teal",       # job block: where
+    "suitability": "auto",    # job block: the 0-10 score
+    "compat": "auto",         # job block: compatibility percentage
+    "site": "pink",           # job block: where it was posted
+    "docs": "lavender",       # job block: the documents mode
+    "salary": "lime",         # job block: pay
+    "blocker": "red",         # job block: hard requirements you don't meet
+    "about": "blue",          # job block: short description
+    "requires": "gold",       # job block: requirements
+    "has": "green",           # job block: your matching skills
+    "gaps": "orange",         # job block: what you're missing
+    "notes": "magenta",       # job block: contract, work setup ...
+    "link": "gray",           # job block: link to the posting
+}
+
+CONSOLE_TAG_COLORS = {        # the [TAG] at the start of a line
+    "SCRAPER": "cyan", "FILTER": "yellow", "SCORER": "blue", "PIPELINE": "blue", "DEDUPE": "gray",
+    "COMPAT": "sky", "DOCS": "magenta", "APPLY": "green", "BRIDGE": "orange", "CSV": "gold",
+    "SUMMARY": "white", "TRACK": "pink",
+}
 
 from config.profile_loader import apply_overrides  # noqa: E402
 apply_overrides(globals())
