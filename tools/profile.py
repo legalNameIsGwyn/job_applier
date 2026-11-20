@@ -566,6 +566,16 @@ def run_checks(name: str) -> list[tuple[str, str, str]]:
                                                   f"{len(data.get('experience', []))} role(s), {len(data.get('projects', []))} project(s)")
             if data.get("name") and not data.get("skills"):
                 add("warn", "resume", "no skills listed, so the keyword score will be 0 for every job")
+
+            licenses = data.get("licenses")
+
+            if licenses is None:
+                add("warn", "licenses", "resume.json has no \"licenses\" list (for example a driver's license), so jobs that "
+                                        "require one are flagged as missing. Use [] if you hold none")
+                
+            elif not isinstance(licenses, list) or not all(
+                    (str(x.get("name", "")).strip() if isinstance(x, dict) else str(x).strip()) for x in licenses):
+                add("warn", "licenses", "\"licenses\" must be a list and every license needs a \"name\"")
         except ValueError as e:
             add("fail", "resume", f"{path.name} isn't valid JSON: {e}")
 

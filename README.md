@@ -212,9 +212,11 @@ Each scored job gets two numbers:
 - **Detailed** (jobs at or above `MIN_SCORE`, when `COMPAT_DETAIL` is on): the model only reads the posting and lists
   its requirements; **code** then checks each against your resume, so the result is repeatable. Each requirement is
   yes (100%), partial (50%) or no (0%); required items weigh 1, preferred items 0.5.
-- **Hard requirement cap:** if a required item of kind clearance, work authorization or license/certification is
-  missing, the detailed percentage is capped at `HARD_REQ_CAP` (60). A missing degree never caps it.
-
+- **Hard requirement cap:** if a required clearance or work authorization is missing, the detailed percentage is capped at
+  `HARD_REQ_CAP` (60). A missing degree, license or certification never caps it.
+- **Licenses and certifications:** a required one that isn't in the `licenses` or `certifications` lists of `resume.json`
+  is shown on its own `⚠ license` line (and as `[LICENSE]` in `tools.show_jobs`). It never drops the job or lowers the
+  percentage, and document bridging skips it.
 The missing requirements are listed in `tools.show_jobs`, in each application's `notes.txt`, and the percentages show
 in `tools.summary`. Add synonyms to `SKILL_ALIASES` in `config/keywords.py` to improve matching. Jobs scored before
 this feature have no percentage until `python -m tools.rescore --yes`.
@@ -475,6 +477,7 @@ name, contact {email, phone, location, github, gitlab}, work_authorization, avai
 skills [...], certifications [{name, date, credential_id | url}], education [{degree, school, years}],
 experience [{role, company, years, bullets [...], description}],
 projects [{name, url, bullets [...], description, skills [...]}]
+licenses ([{name, state, expires}], only name required) to the field list.
 ```
 
 Optional: `legal_name` (used for "legal name" fields); `interests` and `transferable_experience` (lists of short

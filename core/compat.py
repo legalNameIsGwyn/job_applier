@@ -122,6 +122,30 @@ def _resume_text(resume: dict) -> str:
     return " ".join(str(p) for p in parts if p).lower()
 
 
+# Words that don't tell one license or certification from another ("valid driver's license" is just "driver").
+_LICENSE_FILLER = frozenset(_stem(w) for w in """valid active current certification certified certificate certificates
+license licenses licensed licence licences u.s us state professional holder holders equivalent equivalency
+similar candidate required""".split())
+
+
+def held_credentials(resume: dict) -> str:
+    """The names of the licenses and certifications on the resume, as one lowercase string."""
+    names = []
+    for item in list(resume.get("licenses") or []) + list(resume.get("certifications") or []):
+        names.append(item.get("name", "") if isinstance(item, dict) else item)
+    return " ".join(str(n) for n in names if n).lower()
+
+
+def _judge_license(text: str, resume: dict) -> str | None:
+    """"yes" when every distinguishing word of the requirement is in a license or certification you list, else "no".
+    None when the requirement names nothing specific ("a professional license")."""
+    core = [w for w in _significant(text) if w not in _LICENSE_FILLER]
+    if not core:
+        return None
+    held = {_stem(w) for w in _words(held_credentials(resume))}
+    return "yes" if all(w in held for w in core) else "no"
+
+
 def _as_bool(value) -> bool:
     return value if isinstance(value, bool) else str(value).strip().lower() in ("true", "yes", "1")
 
@@ -163,6 +187,9 @@ def judge(req: dict, resume: dict, text: str | None = None, have: set | None = N
         if "citizen" in low:
             return "yes" if "citizen" in auth and "green" not in auth else "no"
         return "yes" if any(w in auth for w in ("authorized", "citizen", "green card", "permanent resident")) else "no"
+
+    if req["kind"] == "license_or_certification":
+        return _judge_license(req["text"], resume)
 
     words = _significant(req["text"])
     if not words:
@@ -215,6 +242,7 @@ def detailed_result(reqs: list[dict], cap: float = HARD_REQ_CAP, hard_kinds=None
     missing.sort(key=lambda m: (not m["hard"], not m["required"]))   # hard blockers, then required, then preferred
     return {"detail_pct": round(pct, 1), "missing": missing, "capped": capped}
 
+
 def drop_reason(compat: dict | None, kinds=None) -> str | None:
     """Why a job should be dropped after the detailed check, or None to keep it.
 
@@ -226,6 +254,7 @@ def drop_reason(compat: dict | None, kinds=None) -> str | None:
         if m.get("required") and m.get("kind") in kinds:
             return f'Requires {m["text"]} (auto-rejected)'
     return None
+
 
 def _ask_model(prompt: str) -> dict:
     from core.scorer import MODEL, client, extract_json   # imported here so the maths above works without Ollama
@@ -299,6 +328,8 @@ def describe(result: dict) -> str:
 
 
 def missing_label(job: dict) -> str:
-    """'[HARD] Security clearance; Kubernetes' from a job dict, or '' when nothing is missing."""
+    """'[HARD] Security clearance; [LICENSE] Driver's license; Kubernetes' from a job dict, or '' when nothing is missing."""
     items = [m for m in (job.get("compat_missing") or []) if isinstance(m, dict) and m.get("text")]
-    return "; ".join(("[HARD] " if m.get("hard") else "") + m["text"] for m in items)
+    def prefix(m):
+        return "[HARD] " if m.get("hard") else "[LICENSE] " if m.get("kind") == "license_or_certification" else ""
+    return "; ".join(prefix(m) + m["text"] for m in items)

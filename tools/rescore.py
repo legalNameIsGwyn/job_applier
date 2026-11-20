@@ -1,9 +1,10 @@
-"""Re-score jobs that are already in the database. No scraping, no network except Ollama.
 
+"""Re-score jobs that are already in the database. No scraping, no network except Ollama.
+ 
 Use it after you change the prompt (config/prompts.py), your resume, the model, the filter
 rules or the keyword lists, to see how the jobs you already have would score now.
 It works on the active profile: --profile NAME, or DEFAULT_PROFILE in config/settings.py.
-
+ 
     python -m tools.rescore                  # every scored job, and any that failed before
     python -m tools.rescore --failed-only    # only jobs whose scoring failed
     python -m tools.rescore --include-filtered   # also re-check filtered jobs against the current rules
@@ -12,13 +13,13 @@ It works on the active profile: --profile NAME, or DEFAULT_PROFILE in config/set
     python -m tools.rescore -n 20            # at most 20 jobs (oldest first)
     python -m tools.rescore --url <job url>  # one job
     python -m tools.rescore --yes            # don't ask for confirmation
-
+ 
 Each job is saved as soon as it is scored, so Ctrl-C loses nothing. If the model fails on a
 job that already had a score, the old score is kept. Your hand ratings are never touched.
 """
-
+ 
 import argparse
-
+ 
 from config.settings import DB_PATH, MAX_CONSECUTIVE_FAILURES
 from core.calibration import blend, keyword_score
 from core.compat import compute as compute_compat
@@ -29,14 +30,14 @@ from db.queries import jobs_for_rescore
 from db.repo import FAILED_SCORE, init_db, save_job
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 from core.console import tag
-
-
+ 
+ 
 def get_targets(failed_only=False, include_filtered=False, url=None, limit=None, include_unscored=False,
                 db_path=DB_PATH):
     """Jobs to re-score, as dicts, oldest first. Jobs with no description are left out."""
     return jobs_for_rescore(failed_only, include_filtered, url, limit, include_unscored, db_path)
-
-
+ 
+ 
 def rescore(failed_only=False, include_filtered=False, url=None, limit=None, assume_yes=False,
             include_unscored=False, db_path=DB_PATH) -> dict:
     """Re-score the selected jobs. Returns counts: updated, filtered, failed."""
@@ -45,18 +46,18 @@ def rescore(failed_only=False, include_filtered=False, url=None, limit=None, ass
     if not jobs:
         tag("RESCORE", "No matching jobs with a description.")
         return {"updated": 0, "filtered": 0, "failed": 0}
-
+ 
     tag("RESCORE", f"Profile '{active_profile_name()}': {len(jobs)} job(s) to re-score with model '{MODEL}'.")
     if not assume_yes and input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
         tag("RESCORE", "Cancelled.")
         return {"updated": 0, "filtered": 0, "failed": 0}
-
+ 
     cal = load_calibration(db_path)   # read once, not once per job
     updated = filtered = failed = streak = 0
     changes = []  # (old, new, title, company)
     for i, job in enumerate(jobs, start=1):
         label = f"{job['title'][:50]} - {job['company'][:25]}"
-
+ 
         reason = filter_reason(job["title"], job["company"], job["description"])
         if reason:
             tag("RESCORE", f"{i}/{len(jobs)} FILTERED  {label}: {reason}")
@@ -64,7 +65,7 @@ def rescore(failed_only=False, include_filtered=False, url=None, limit=None, ass
                      db_path=db_path, status="filtered", model_score=0.0)
             filtered += 1
             continue
-
+ 
         old = job["match_score"]   # None for a job this profile has never scored
         try:
             score = score_job(job["title"], job["company"], job["location"], job["description"])
@@ -87,7 +88,7 @@ def rescore(failed_only=False, include_filtered=False, url=None, limit=None, ass
                 tag("RESCORE", f"{MAX_CONSECUTIVE_FAILURES} failures in a row. Is Ollama running and "
                       f"is '{MODEL}' pulled? Stopping; progress so far is saved.")
                 break
-
+ 
     scored_before = [c for c in changes if c[0] is not None and c[0] != FAILED_SCORE]
     print()
     tag("RESCORE", f"Updated {updated}, newly filtered {filtered}, failed {failed}.")
@@ -98,8 +99,8 @@ def rescore(failed_only=False, include_filtered=False, url=None, limit=None, ass
         for old, new, title, company in sorted(scored_before, key=lambda c: abs(c[1] - c[0]), reverse=True)[:5]:
             print(f"   {old:g} -> {new:g}  {title[:45]} - {company[:25]}")
     return {"updated": updated, "filtered": filtered, "failed": failed}
-
-
+ 
+ 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Re-score jobs already in the database.")
     parser.add_argument("--failed-only", action="store_true", help="only jobs whose scoring failed")
@@ -114,3 +115,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     apply_profile_arguments(args)
     rescore(args.failed_only, args.include_filtered, args.url, args.limit, args.yes, args.include_unscored)
+ 

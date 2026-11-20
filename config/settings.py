@@ -117,7 +117,7 @@ RATING_CARD_MAX_WIDTH = 100    # cap used when RATING_CARD_WIDTH is None
 
 COMPAT_DETAIL = True      # the extra model call for jobs at or above MIN_SCORE
 HARD_REQ_CAP = 60         # detailed % is capped here when a hard requirement is missing
-HARD_REQ_KINDS = ("clearance", "work_authorization", "license_or_certification")
+HARD_REQ_KINDS = ("clearance", "work_authorization")   # a missing required item of these caps the detailed %; licenses and certifications are only flagged
 DROP_ON_MISSING_KINDS = ("clearance",)   # a required item of these kinds you lack DROPS the job after the detailed check. Add "work_authorization" to drop those too; licenses and certifications are only flagged
 
 MAX_BRIDGE_LINES = 2      # bridge lines proposed per job
@@ -151,6 +151,7 @@ CONSOLE_COLORS = {
     "docs": "lavender",       # job block: the documents mode
     "salary": "lime",         # job block: pay
     "blocker": "red",         # job block: hard requirements you don't meet
+    "license": "yellow",      # job block: a required license or certification you don't list
     "about": "blue",          # job block: short description
     "requires": "gold",       # job block: requirements
     "has": "green",           # job block: your matching skills
