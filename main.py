@@ -79,6 +79,10 @@ def save_blocked(job: dict, reason: str) -> None:
     save_job({**job, "description": ""}, {"match_score": 0.0, "matched_skills": [], "gaps": [reason]},
              status="blocked", model_score=0.0)
 
+def job_label(job: dict, limit: int = 60) -> str:
+    """'Title · Company' for the log, cut to `limit` characters."""
+    label = f"{job['title']} · {job['company']}"
+    return label if len(label) <= limit else label[:limit - 1].rstrip() + "…"
 
 def short_reason(reason: str) -> str:
     """'Filtered: senior-level title ('Senior')' -> 'senior-level title ('Senior')'. Drops '(auto-rejected)' too."""
@@ -250,21 +254,26 @@ async def main(
 
     # ---- 2 PRE-FILTER: title / company rules. These need no description, so they run BEFORE any description is fetched and save those requests.
     step(2, "PRE-FILTER", "Title and company rules, checked before any description is downloaded.")
-    filtered_count, kept, shown = 0, [], 0
-    for idx, row in todo.iterrows():
+
+    filtered_count, kept = 0, []
+    for n, (idx, row) in enumerate(todo.iterrows(), start=1):
         job = job_from_row(row)
+        tag("FILTER", f"Checking {n}/{len(todo)}: {job_label(job)}")
         reason = filter_reason(job["title"], job["company"])
         if reason:
             save_filtered(job, reason)
             filtered_count += 1
-            print()
-            shown += 1
-            job_head(job["title"], job["company"], job["job_url"])
-            decision("bad", f"rejected: {short_reason(reason)}")
+            tag("FILTER", f"Removed: {short_reason(reason)}", "bad")
         else:
             kept.append(idx)
+            tag("FILTER", "Kept: title and company rules passed", "ok")
+
     print()
-    say("result", f"{filtered_count} rejected, {len(kept)} kept")
+    
+    if todo.empty:
+        say("result", "nothing to check: every job was already handled on an earlier run")
+    else:
+        say("result", f"{filtered_count} rejected, {len(kept)} kept")
     todo = todo.loc[kept]
 
     # ---- 3 DESCRIPTIONS: only for jobs we still need to score (saves requests on re-runs)
