@@ -31,10 +31,10 @@ SEARCH_TERMS = [
     "associate software engineer",
 ]
 LOCATION = "Norfolk, VA"
-RESULTS_WANTED = 50   # per site, per search term
+RESULTS_WANTED = 5   # per site, per search term
 HOURS_OLD = 72    
 
-LINKEDIN_RESULTS_WANTED = 50   # LinkedIn blocks big pulls
+LINKEDIN_RESULTS_WANTED = 5   # LinkedIn blocks big pulls
 LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS = False  # False = JobSpy won't open every job page
 # main.py's slower fetcher fills descriptions in instead
 
@@ -62,8 +62,9 @@ COUNTRY_INDEED = "USA"
 DELAY_BETWEEN_SEARCH_TERMS = 5.0          # seconds
 DESCRIPTION_FETCH_DELAY = (1.5, 3.5)      # random pause (min, max seconds) between LinkedIn pages
 DESCRIPTION_FETCH_TIMEOUT = 20            # seconds per LinkedIn page
+DESCRIPTION_FETCH_ATTEMPTS = 3            # tries per job before it is left for the next run (a 429 or a page with no text counts as a try)
 RATE_LIMIT_BACKOFF_SECONDS = 30           # first wait after a 429; doubles/triples on repeats
-RATE_LIMIT_STOP_AFTER = 3                 # give up fetching descriptions after this many 429s in a row
+RATE_LIMIT_STOP_AFTER_JOBS = None         # stop fetching for the whole run after this many jobs in a row end on a 429 (None = never; each job just gives up on its own)
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
