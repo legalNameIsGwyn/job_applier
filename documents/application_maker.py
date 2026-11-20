@@ -280,7 +280,8 @@ def bridgeable_gaps(job: dict) -> list[str]:
     """Requirements worth bridging: the detailed check's missing list without hard blockers, else the model's gaps."""
     missing = job.get("compat_missing")
     if missing:
-        return [m["text"] for m in missing if isinstance(m, dict) and m.get("text") and not m.get("hard")]
+        return [m["text"] for m in missing if isinstance(m, dict) and m.get("text") and not m.get("hard")
+                and m.get("kind") != "license_or_certification"]
     return [g for g in (job.get("gaps") or []) if isinstance(g, str) and g.strip()][:6]
 
 

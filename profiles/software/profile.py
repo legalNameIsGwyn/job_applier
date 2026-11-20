@@ -9,11 +9,8 @@ To change something not listed here, copy its line from profiles/_generic/profil
 # what to search for (every term runs on every site)
 SEARCH_TERMS = [
     'junior software engineer',
-    'software developer',
-    'PHP',
     'associate software engineer',
     'junior full stack developer',
-    'web developer',
 ]
 
 # share of the score that comes from the model (the rest is keyword matching)

@@ -16,6 +16,9 @@
   "certifications": [
     {"name": "Certification name", "date": "Month Year", "credential_id": ""}
   ],
+  "licenses": [
+    {"name": "License name", "state": "", "expires": ""}
+  ],
   "education": [
     {"degree": "Degree, Major", "school": "School name", "years": "Start - End"}
   ],
@@ -38,5 +41,5 @@
     }
   ],
   "interests": ["helping people learn new tools"],
-  "transferable_experience": ["daily contact with the employees who used the internal tools I maintained"],
+  "transferable_experience": ["daily contact with the employees who used the internal tools I maintained"]
 }

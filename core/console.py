@@ -40,8 +40,8 @@ _CODES = {
 DEFAULT_COLORS = {
     "heading": "white", "label": "gray", "value": "white", "rule": "blue",
     "job_title": "white", "company": "sky", "location": "teal", "suitability": "auto", "compat": "auto",
-    "site": "pink", "docs": "lavender", "salary": "lime", "blocker": "red",
-    "about": "blue", "requires": "gold", "has": "green", "gaps": "orange", "notes": "magenta", "link": "gray",
+    "site": "pink", "docs": "lavender", "salary": "lime", "blocker": "red", "license": "yellow", "about": 
+    "blue", "requires": "gold", "has": "green", "gaps": "orange", "notes": "magenta", "link": "gray",
 }
 
 COLORS = {**DEFAULT_COLORS, **getattr(_settings, "CONSOLE_COLORS", {})}
@@ -288,24 +288,26 @@ def _cut(text: str, n: int) -> str:
     return text + ("…" if clipped else "")
 
 
-def _gaps(job: dict) -> tuple[list[str], list[str]]:
-    """(hard blockers, other gaps): the detailed check's missing requirements plus the scorer's gaps, no repeats."""
-    hard, other = [], []
+def _gaps(job: dict) -> tuple[list[str], list[str], list[str]]:
+    """(hard blockers, missing licenses/certifications, other gaps): the detailed check's missing requirements
+    plus the scorer's gaps, no repeats."""
+    hard, lic, other = [], [], []
 
     def seen_already(text: str) -> bool:
         low = text.lower()
-        return any(_same(text, s) or low in s.lower() or s.lower() in low for s in hard + other)
+        return any(_same(text, s) or low in s.lower() or s.lower() in low for s in hard + lic + other)
 
     missing = [m for m in (job.get("compat_missing") or []) if isinstance(m, dict) and m.get("text")]
     for m in sorted(missing, key=lambda m: not m.get("hard")):
         text = m["text"].strip()
         if not seen_already(text):
-            (hard if m.get("hard") else other).append(text)
+            group = hard if m.get("hard") else lic if m.get("kind") == "license_or_certification" else other
+            group.append(text)
     for g in job.get("gaps") or []:
         text = str(g).strip()
         if text and not seen_already(text):
             other.append(text)
-    return hard, other[:4]
+    return hard, lic, other[:4]
 
 
 def _short_note(note: str) -> str:
@@ -367,10 +369,13 @@ def job_block(job: dict, mode: str | None = None) -> None:
         numbers.append([("pay ", label, False), (salary, role("salary"), True)])
     _flow(numbers)
 
-    hard, gaps = _gaps(job)
+    hard, lic, gaps = _gaps(job)
     if hard:
         mark = paint("✗ blocker  ", role("blocker"), True)
         print(wrap(", ".join(hard), INDENT + mark, INDENT + " " * 11, color=role("blocker")))
+    if lic:
+        mark = paint("⚠ license  ", role("license"), True)
+        print(wrap(", ".join(lic), INDENT + mark, INDENT + " " * 11, color=role("license")))
 
     # ---- body: only what the header does not already say
     print()
@@ -379,7 +384,7 @@ def job_block(job: dict, mode: str | None = None) -> None:
         print(_field("about", _cut(about, 260), role("about")))
 
     reqs = [_cut(r, 120) for r in summary_points(desc, per_section=3, width=140).get("Requirements", [])]
-    reqs = [r for r in reqs if not any(_same(r, g) for g in hard + gaps)]    # a missing one is listed under gaps
+    reqs = [r for r in reqs if not any(_same(r, g) for g in hard + lic +gaps)]    # a missing one is listed under gaps
     if reqs:
         print(_bullets("requires", reqs, role("requires")))
 
