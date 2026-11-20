@@ -18,15 +18,15 @@ from db.queries import applied_urls, get_jobs
 from db.repo import FAILED_SCORE, get_scored_urls, init_db, save_job
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 from core.scraper import fill_missing_descriptions, scrape_multiple_terms
-from core.scorer import MODEL, load_resume, score_job
+from core.scorer import MODEL, blocked_reason, load_resume, score_job
 from documents.application_maker import choose_mode, create_application, job_folder
 from core.csv_log import csv_path, enabled as csv_enabled, known_urls, log_job
 from core.dedupe import duplicate_gap, load_known
 from core.filters import filter_reason
 from core.job_info import format_salary
 from core.calibration import blend, keyword_score
-from core.compat import compute as compute_compat, describe as describe_compat
-from core.console import banner, decision, job_block, job_head, note, say, section, step
+from core.compat import compute as compute_compat, describe as describe_compat, drop_reason
+from core.console import banner, decision, job_block, job_head, note, say, section, step, tag
 
 from config.settings import (
     MIN_SCORE, DOC_WINDOW_DAYS, HOURS_OLD, LOCATION, MAKE_DOCS, MAX_CONSECUTIVE_FAILURES,
@@ -74,9 +74,16 @@ def save_filtered(job: dict, reason: str) -> None:
     save_job(job, {"match_score": 0.0, "matched_skills": [], "gaps": [reason]},
              status="filtered", model_score=0.0)
 
+def save_blocked(job: dict, reason: str) -> None:
+    """Record a hard blocker (clearance, citizenship): the reason only, never the description."""
+    save_job({**job, "description": ""}, {"match_score": 0.0, "matched_skills": [], "gaps": [reason]},
+             status="blocked", model_score=0.0)
+
+
 def short_reason(reason: str) -> str:
-    """'Filtered: senior-level title ('Senior')' -> 'senior-level title ('Senior')'."""
-    return reason[len("Filtered: "):] if reason.startswith("Filtered: ") else reason
+    """'Filtered: senior-level title ('Senior')' -> 'senior-level title ('Senior')'. Drops '(auto-rejected)' too."""
+    reason = reason[len("Filtered: "):] if reason.startswith("Filtered: ") else reason
+    return reason.replace(" (auto-rejected)", "")
 
 
 def compat_text(compat: dict | None) -> str:
@@ -300,14 +307,15 @@ async def main(
         print()                   # <-- delete this line to remove the blank line between jobs
         job_head(job["title"], job["company"], job["job_url"])
 
-        # Filter stage 2: needs the description (years of experience required)
-        reason = applicant_reason(row, job) or filter_reason(job["title"], job["company"], job["description"])
-        
+        tag("FILTER", f"Checking job: {job['title']}")
+        blocker = blocked_reason(job["title"], job["description"])
+        reason = blocker or applicant_reason(row, job) or filter_reason(job["title"], job["company"], job["description"])
         if reason:
-            decision("bad", f"rejected: {short_reason(reason)}")
-            save_filtered(job, reason)
+            tag("FILTER", f"Removed: {short_reason(reason)}", "bad")
+            (save_blocked if blocker else save_filtered)(job, reason)
             filtered_count += 1
             continue
+        tag("FILTER", "Accepted: no blockers or filter rules matched", "ok")
 
         original = known.duplicate_of(job)
         if original:
@@ -331,6 +339,13 @@ async def main(
             model_score = keyword = compat = None
             consecutive_failures += 1
 
+        late = drop_reason(compat)   # a hard blocker only the detailed check could see
+        if late:
+            tag("FILTER", f"Removed: {short_reason(late)}", "bad")
+            save_blocked(job, late)
+            filtered_count += 1
+            continue
+        
         save_job(job, score, model_score=model_score, keyword_score=keyword, compat=compat)
 
         if score["match_score"] >= 0:

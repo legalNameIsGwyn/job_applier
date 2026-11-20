@@ -118,6 +118,7 @@ RATING_CARD_MAX_WIDTH = 100    # cap used when RATING_CARD_WIDTH is None
 COMPAT_DETAIL = True      # the extra model call for jobs at or above MIN_SCORE
 HARD_REQ_CAP = 60         # detailed % is capped here when a hard requirement is missing
 HARD_REQ_KINDS = ("clearance", "work_authorization", "license_or_certification")
+DROP_ON_MISSING_KINDS = ("clearance",)   # a required item of these kinds you lack DROPS the job after the detailed check. Add "work_authorization" to drop those too; licenses and certifications are only flagged
 
 MAX_BRIDGE_LINES = 2      # bridge lines proposed per job
 

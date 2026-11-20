@@ -172,6 +172,12 @@ reason, so they're never re-fetched. All the rules come from the active profile.
   nearly identical text) is saved with status `duplicate`, score 0, and left out of ratings, rankings and
   applications. `main.py` checks each new job; `python -m core.dedupe` cleans up what is already in the database
   (`--dry-run` to look first).
+- **Hard blockers** (needs the description): a security clearance or U.S. citizenship requirement is checked right after the
+  description is downloaded, before any model call. The job is saved with status `blocked`, the reason and **no description**,
+  and the log shows `[FILTER] Checking job` followed by `Removed: …` or `Accepted: …`.
+- **Drops after the detailed check:** a required item whose kind is in `DROP_ON_MISSING_KINDS` (default: clearance) that your
+  resume doesn't show drops the job the same way (status `blocked`, no description). Licenses and certifications are only
+  flagged as missing. Add `"work_authorization"` to `DROP_ON_MISSING_KINDS` in your profile to drop those too.
 
 ### Scoring (`core\scorer.py`, `core\calibration.py`)
 
