@@ -20,7 +20,8 @@ import re
 import config.keywords as _keywords
 from config.prompts import COMPAT_PROMPT
 from config.settings import (
-    COMPAT_DETAIL, DESCRIPTION_CHARS_SCORING, HARD_REQ_CAP, HARD_REQ_KINDS, MIN_SCORE, SCORING_TEMPERATURE,
+    COMPAT_DETAIL, DESCRIPTION_CHARS_SCORING, DROP_ON_MISSING_KINDS, HARD_REQ_CAP, HARD_REQ_KINDS, MIN_SCORE,
+    SCORING_TEMPERATURE,
 )
 from core.console import tag
 
@@ -209,11 +210,22 @@ def detailed_result(reqs: list[dict], cap: float = HARD_REQ_CAP, hard_kinds=None
     if capped:
         pct = float(cap)
 
-    missing = [{"text": r["text"], "hard": is_hard(r, hard_kinds), "required": r["required"]}
+    missing = [{"text": r["text"], "kind": r["kind"], "hard": is_hard(r, hard_kinds), "required": r["required"]}
                for r in reqs if r["met"] == "no"]
     missing.sort(key=lambda m: (not m["hard"], not m["required"]))   # hard blockers, then required, then preferred
     return {"detail_pct": round(pct, 1), "missing": missing, "capped": capped}
 
+def drop_reason(compat: dict | None, kinds=None) -> str | None:
+    """Why a job should be dropped after the detailed check, or None to keep it.
+
+    A required item whose kind is in DROP_ON_MISSING_KINDS (clearance by default) that you don't have drops the job.
+    The text keeps "(auto-rejected)" because the ratings and calibration tools look for it.
+    """
+    kinds = DROP_ON_MISSING_KINDS if kinds is None else kinds
+    for m in (compat or {}).get("missing", []):
+        if m.get("required") and m.get("kind") in kinds:
+            return f'Requires {m["text"]} (auto-rejected)'
+    return None
 
 def _ask_model(prompt: str) -> dict:
     from core.scorer import MODEL, client, extract_json   # imported here so the maths above works without Ollama
