@@ -1,7 +1,9 @@
 """The list of jobs you can click through and apply to by hand: applications.xlsx (or applications.csv).
 
 It sits next to the applications folder (profiles/<name>/applications.xlsx), one row per job.
-Rows are only ever appended, and a job whose URL is already in the file is never added twice.
+A job whose URL is already in the file is never added twice. Every write re-sorts the whole list (see sort_rows):
+newest date first, then jobs without a status, then highest score, then highest compat_pct. Sorting by hand in
+Excel is therefore undone the next time the list is written.
 Turn it off with CSV_LOG = False in config/settings.py. LOG_FORMAT = "xlsx" (default) or "csv" picks the file type.
 
 If LOG_FORMAT is "xlsx" and there is no applications.xlsx yet but an applications.csv is beside it,
@@ -22,6 +24,8 @@ from core.console import tag
 COLUMNS = ["job_url", "score", "compat_pct", "title",  "folder", "status", "company", "location", "mode", "date", "last_checked"]
 NUMERIC_COLUMNS = ("score", "compat_pct")
 FORMATS = ("xlsx", "csv")
+MAX_LINK_LENGTH = 2000          # Excel refuses links much longer than this
+_STAMP_PREFIX = "project folder: "   # saved in the .xlsx so a moved project can be noticed
 
 # What reading the file can raise. If it does, nothing is written back, so a damaged file is never overwritten.
 _READ_ERRORS = (OSError, csv.Error, UnicodeDecodeError, zipfile.BadZipFile, KeyError, ValueError)
@@ -98,21 +102,29 @@ def _read_csv(path: Path) -> tuple[list[str], list[dict]]:
         return list(reader.fieldnames or []), [dict(r) for r in reader]
 
 
-def _read_xlsx(path: Path) -> tuple[list[str], list[dict]]:
+def _stamp() -> str:
+    """Where the project is right now: the folder the generated documents live in."""
+    return str(Path(_settings.APPLICATIONS_DIR).absolute())
+
+
+def _read_xlsx(path: Path) -> tuple[list[str], list[dict], str]:
+    """(column names, rows, the project folder this file's links were written for; "" if unknown)."""
     from openpyxl import load_workbook
     wb = load_workbook(path, read_only=True, data_only=True)
     try:
+        stamp = _text(wb.properties.description)
+        stamp = stamp[len(_STAMP_PREFIX):] if stamp.startswith(_STAMP_PREFIX) else ""
         lines = wb.worksheets[0].iter_rows(values_only=True)
         header = next(lines, None)
         if not header:
-            return [], []
+            return [], [], stamp
         names = [_text(h) for h in header]
         rows = []
         for values in lines:
             if all(v is None or v == "" for v in values):
                 continue
             rows.append({n: v for n, v in zip(names, values) if n})
-        return [n for n in names if n], rows
+        return [n for n in names if n], rows, stamp
     finally:
         wb.close()   # lets go of the file so it can be replaced afterwards
 
@@ -123,10 +135,20 @@ def _load(path: Path) -> tuple[list[str], list[dict]]:
     if legacy is not None:
         _once("import", f"Importing {legacy.name} into {path.name} ({legacy.name} is left as it is).")
         fields, rows = _read_csv(legacy)
-        return COLUMNS + [f for f in fields if f not in COLUMNS], rows   # the old file may use another column order
+        fields = COLUMNS + [f for f in fields if f not in COLUMNS]   # the old file may use another column order
+        _save(path, fields, rows, "it is created on the next run")   # create the .xlsx now, once
+        return fields, rows
     if not path.exists():
         return [], []
-    return _read_xlsx(path) if path.suffix.lower() == ".xlsx" else _read_csv(path)
+    if path.suffix.lower() != ".xlsx":
+        return _read_csv(path)
+    fields, rows, stamp = _read_xlsx(path)
+    if rows and stamp != _stamp() and "refresh_failed" not in _announced:
+        # The project was moved (or this sheet has no links yet): write it again so every link points at the right place.
+        _once("refresh", f"Refreshing the links in {path.name} for the project's current location.")
+        if not _save(path, _all_columns(fields), rows, "the links are refreshed on the next run"):
+            _announced.add("refresh_failed")   # don't try (and complain) again on every read this run
+    return fields, rows
 
 
 def _all_columns(fields: list[str]) -> list[str]:
@@ -139,6 +161,7 @@ def _write_xlsx(path: Path, fields: list[str], rows: list[dict]) -> None:
     from openpyxl import Workbook
     from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
     wb = Workbook()
+    wb.properties.description = _STAMP_PREFIX + _stamp()
     ws = wb.active
     ws.title = "Applications"
     ws.append(fields)
@@ -154,7 +177,23 @@ def _write_xlsx(path: Path, fields: list[str], rows: list[dict]) -> None:
             cell = ws.cell(row=r, column=c, value=value)
             if isinstance(value, str):
                 cell.data_type = "s"    # text stays text, even if it starts with "="
+                target = _link_target(field, value)
+                if target:
+                    cell.hyperlink = target   # the cell's text is unchanged; only the link is added
+                    cell.style = "Hyperlink"
     wb.save(path)
+
+
+def _link_target(field: str, value: str) -> str | None:
+    """Where a cell should link to: the posting for job_url, the application's folder for folder."""
+    value = value.strip()
+    if field == "job_url" and value.lower().startswith(("http://", "https://")):
+        target = value
+    elif field == "folder" and value:
+        target = (Path(_settings.APPLICATIONS_DIR) / value).absolute().as_uri()
+    else:
+        return None
+    return target if len(target) <= MAX_LINK_LENGTH else None
 
 
 def _write_csv(path: Path, fields: list[str], rows: list[dict]) -> None:
@@ -169,8 +208,23 @@ def _write_csv(path: Path, fields: list[str], rows: list[dict]) -> None:
             writer.writerow(out)
 
 
+def sort_rows(rows: list[dict]) -> list[dict]:
+    """Newest date group first. Inside a date: jobs with no status before jobs with one, then the highest score,
+    then the highest compat_pct. Rows that tie keep the order they already had."""
+    def number(row, field):
+        value = _number(row.get(field))
+        return value if isinstance(value, float) else -1.0   # a blank or unreadable score sorts last
+    rows = list(rows)
+    rows.sort(key=lambda r: number(r, "compat_pct"), reverse=True)
+    rows.sort(key=lambda r: number(r, "score"), reverse=True)
+    rows.sort(key=lambda r: bool(_text(r.get("status"))))      # False (no status yet) comes first
+    rows.sort(key=lambda r: _text(r.get("date"))[:10], reverse=True)
+    return rows
+
+
 def _save(path: Path, fields: list[str], rows: list[dict], retry_note: str) -> bool:
-    """Write the whole list to a temporary file, then swap it in. False (with a message) if that can't be done."""
+    """Sort the list, write it to a temporary file, then swap it in. False (with a message) if that can't be done."""
+    rows = sort_rows(rows)
     tmp = path.with_name(f"{path.stem}.tmp{path.suffix}")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)

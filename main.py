@@ -144,14 +144,14 @@ def applicant_reason(row, job: dict) -> str | None:
     return None
 
 def generate_documents(min_score: float = MIN_SCORE, max_docs: int = MAX_DOCS_PER_RUN,
-                       days: int = DOC_WINDOW_DAYS, number: int | None = 6) -> int:
+                       days: int = DOC_WINDOW_DAYS) -> int:
     """Create a tailored resume + cover letter for the best-scoring recent jobs, and log each in the CSV.
 
     Reads from the database (not just this run), so jobs scored in an earlier or interrupted run still
     get documents. A job already in the applications CSV is skipped. A job that has a folder but no CSV
     row (made before the CSV existed) just gets its row added. Returns how many folders were created.
     """
-    step(number, "DOCUMENTS", f"A tailored resume and cover letter for each job scoring {min_score:g}+ "
+    step("DOCUMENTS", f"A tailored resume and cover letter for each job scoring {min_score:g}+ "
                               f"in the last {days} days that has none yet.")
     # Take every qualifying job, drop the ones already handled, THEN apply the cap. Capping the
     # query itself would keep re-selecting the same already-done top jobs.
@@ -223,7 +223,7 @@ def ask_unanswered(rows: list) -> None:
 
 def show_results(results: list, filtered: int, duplicates: int, min_score: float) -> set[str]:
     """Stage 5: counts for this run and the best jobs in full. Returns the URLs shown in full."""
-    step(5, "RESULTS", "This run's best jobs, with what the posting asks for and where you fall short.")
+    step("RESULTS", "This run's best jobs, with what the posting asks for and where you fall short.")
     print()
     say("scored", f"{len(results)} this run · filtered {filtered} · duplicates {duplicates}")
     say("database", str(DB_PATH), "gray")
@@ -351,7 +351,7 @@ async def main(
                  "wait a while or lower results_wanted.")
         unanswered = recheck_saved(set(df["job_url"]))
         if make_docs:  # still catch up on documents for jobs scored earlier
-            generate_documents(doc_min_score, max_docs, number=4)
+            generate_documents(doc_min_score, max_docs)
         show_summary()
         ask_unanswered(unanswered)
         return
