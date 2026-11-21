@@ -12,7 +12,7 @@ from pathlib import Path
 import config.settings as _settings
 from core.console import tag
 
-COLUMNS = ["date", "title", "company", "location", "score", "compat_pct", "mode", "job_url", "folder", "status", "last_checked"]
+COLUMNS = ["job_url", "score", "compat_pct", "title",  "folder", "status", "company", "location", "mode", "date", "last_checked"]
 
 
 def enabled() -> bool:

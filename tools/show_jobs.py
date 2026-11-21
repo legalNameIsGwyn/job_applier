@@ -12,14 +12,15 @@ Or from code:
     from tools.show_jobs import show_jobs
     show_jobs(10, "top")
 
-The query itself (get_jobs) lives in db/queries.py; this file only prints.
+The query itself (get_jobs) lives in db/queries.py; the job blocks are drawn by core/console.py, the same
+code main.py uses for "Top matches this run". Under each block: the database id (what tools.track accepts)
+and when the job was scraped.
 """
 
 import argparse
-import textwrap
 
 from config.settings import SHOW_DEFAULT_COUNT
-from core.compat import compat_label, missing_label
+from core.console import INDENT, job_block, paint, say, step, wrap
 from db.queries import get_jobs
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 
@@ -27,27 +28,19 @@ from db.session import active_profile_name, add_profile_arguments, apply_profile
 def show_jobs(n: int = 10, order: str = "top", full: bool = False, **filters) -> list[dict]:
     """Print the top or bottom N jobs, and return them. See db.queries.get_jobs for the filters."""
     jobs = get_jobs(n, order, **filters)
-    label = "Top" if order == "top" else "Bottom"
+    label = "TOP" if order == "top" else "BOTTOM"
 
     if not jobs:
-        print("No jobs match those filters.")
+        say("result", "no jobs match those filters")
         return jobs
 
-    print(f"\n{label} {len(jobs)} jobs (profile: {active_profile_name()})\n" + "=" * 60)
-    for i, j in enumerate(jobs, start=1):
-        compat = f"  compat {compat_label(j)}" if compat_label(j) else ""
-        print(f"\n{i}. #{j['id']} [{j['match_score']:g}/10]{compat} {j['title']} - {j['company']}")
-        print(f"   {j['location']}  (scraped {j['scraped_at']})")
-        print(f"   {j['job_url']}")
-        if j["matched_skills"]:
-            print(f"   Matched: {', '.join(j['matched_skills'])}")
-        if j["gaps"]:
-            print(f"   Gaps:    {', '.join(j['gaps'])}")
-        if missing_label(j):
-            print(f"   Missing: {missing_label(j)}")
+    step(None, f"{label} {len(jobs)} JOBS", right=f"profile: {active_profile_name()}")
+    for j in jobs:
+        print()
+        job_block(j, meta=[("db id", j["id"]), ("scraped", str(j.get("scraped_at") or "")[:16])], plain_link=True)
         if full and j["description"]:
-            print("   Description:")
-            print(textwrap.indent(textwrap.fill(j["description"][:1500], 90), "     "))
+            print(INDENT + paint("description", "gray"))
+            print(wrap(j["description"][:1500], color="gray"))
     print()
     return jobs
 

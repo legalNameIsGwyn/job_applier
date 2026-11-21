@@ -79,7 +79,7 @@ $env:JOB_PROFILE = "software"
 ```powershell
 python main.py                    # scrape -> filter -> score -> compat -> documents -> CSV -> summary
 python -m tools.summary           # what's new and what needs you
-python -m tools.show_jobs         # browse scored jobs, with compatibility and missing requirements
+python -m tools.show_jobs         # browse scored jobs in the same layout as main.py, with each job's db id (the number tools.track accepts), scrape date and full link
 ```
 
 Open `profiles\<name>\applications.csv`, click through the jobs, apply, and write anything in the `status` column

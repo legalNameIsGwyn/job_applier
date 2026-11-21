@@ -334,11 +334,14 @@ def link(url: str, text: str = "open posting ↗") -> str:
     return paint(url, role("link"))
 
 
-def job_block(job: dict, mode: str | None = None) -> None:
+def job_block(job: dict, mode: str | None = None, meta: list[tuple[str, str]] | None = None,
+              plain_link: bool = False) -> None:
     """A job's full picture: a header (title, company, place, numbers), then what is not in the header.
 
     Uses only what is already stored (no model calls). Lines with nothing to show are left out.
     Each part has its own color; change them in CONSOLE_COLORS (config/settings.py).
+    meta: optional (label, value) pairs for one gray line under the numbers, e.g. [("db id", "11")].
+    plain_link: show the full URL as text instead of the clickable "open posting".
     """
     from core.job_info import eligibility_flags, posting_summary, salary_from_text, special_notes, summary_points
 
@@ -369,6 +372,8 @@ def job_block(job: dict, mode: str | None = None) -> None:
         numbers.append([("pay ", label, False), (salary, role("salary"), True)])
     _flow(numbers)
 
+    if meta:
+        _flow([[(f"{name} ", "gray", False), (str(value), "gray", False)] for name, value in meta if value])
     hard, lic, gaps = _gaps(job)
     if hard:
         mark = paint("✗ blocker  ", role("blocker"), True)
@@ -402,7 +407,8 @@ def job_block(job: dict, mode: str | None = None) -> None:
         print(_field("notes", " · ".join(notes), role("notes")))
 
     if url:
-        print(INDENT + paint("link".ljust(LABEL), role("link"), True) + " " + link(url))
+        shown = paint(url, role("link")) if plain_link else link(url)
+        print(INDENT + paint("link".ljust(LABEL), role("link"), True) + " " + shown)
 
     if not hard:
         for flag in eligibility_flags(job.get("title", ""), desc):
