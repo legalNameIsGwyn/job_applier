@@ -18,10 +18,20 @@ reason, so they're never re-fetched. All the rules come from the active profile.
   nearly identical text) is saved with status `duplicate`, score 0, and left out of ratings, rankings and
   applications. `main.py` checks each new job; `python -m core.dedupe` cleans up what is already in the database
   (`--dry-run` to look first).
-- **Hard blockers** (needs the description): a security clearance or U.S. citizenship requirement is checked right after the
-  description is downloaded, before any model call. The job is saved with status `blocked`, the reason and **no description**,
+- **Hard blockers:** a security clearance or U.S. citizenship requirement is checked on the title in the pre-filter (for example
+  "(w/ active Secret)"), so no description is downloaded for it, and again on the description right after it is downloaded, before any model call. The job is saved with status `blocked`, the reason and **no description**,
   and the log shows `[FILTER] Checking job` followed by `Removed: …` or `Accepted: …`. Jobs saved earlier can be re-checked
   with `python -m tools.check --blockers` (no model; it lists them first and asks).
+- **Closed postings:** with `CHECK_AVAILABILITY` on, LinkedIn's page (downloaded anyway for the description) is read for "no longer accepting
+  applications" wording; a closed job is saved with status `closed`, score 0 and no description. `CHECK_AVAILABILITY_OTHER_SITES` also asks Greenhouse,
+  Lever, Ashby, Workday and other sites (one extra request per job; many sites just answer "unknown", which counts as open).
+  If no description can be fetched (the site is not LinkedIn and sent none, or LinkedIn kept answering 429), the log says why, and the job is retried next run.
+- **Saved jobs are re-checked too** (`core\availability.py`): after scoring, each run asks whether jobs that already have documents (rows in the CSV
+  with a blank `status`) are still open. Skipped: jobs from this run's scrape, jobs you applied to, skipped or tracked, and jobs checked within
+  `AVAILABILITY_RECHECK_DAYS` days. A closed one gets an `applications` row with status `closed` (score and documents stay) and `closed` in the CSV `status`.
+  Every answer stamps `last_checked` (database and CSV). A job a site won't answer for is tried again next run, and with `AVAILABILITY_ASK = True` you are
+  asked about it after the summary: each link opens in your browser and you answer open / closed / skip. `python -m tools.check --availability` does the
+  same on demand, and `python -m tools.check --mark URL` marks a job closed by hand.
 - **Drops after the detailed check:** a required item whose kind is in `DROP_ON_MISSING_KINDS` (default: clearance) that your
   resume doesn't show drops the job the same way (status `blocked`, no description). Licenses and certifications are only
   flagged as missing. Add `"work_authorization"` to `DROP_ON_MISSING_KINDS` in your profile to drop those too.

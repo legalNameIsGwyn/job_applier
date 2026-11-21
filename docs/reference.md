@@ -12,7 +12,7 @@ job_scraper\
   config\       every editable setting, and the profile loader
   profiles\     one folder per profile (profile.py, resume.json, applications\, applications.csv); _generic is the template
   db\           models, session, repo, queries, ratings, calibrations, tracking, migrate
-  core\         scraper, filters, scorer, calibration, compat, dedupe, job_info, job_status, csv_log
+  core\         scraper, filters, scorer, calibration, compat, dedupe, job_info, job_status, availability, csv_log
   documents\    application_maker
   applying\     ats, ats_lookup, form_filler, answering, workday, generic, linkedin_resolver, worker, check_linkedin_page
   tools\        profile, show_jobs, summary, rescore, check, rating, stats, track, clear, check_setup, csv_sync
@@ -45,8 +45,8 @@ true; documents and form answers are built only from this file.
 | Table | Holds |
 |---|---|
 | `profiles` | one row per profile |
-| `jobs` | the scraped posting, stored once (`job_url` is unique), with `apply_url`, `salary`, `is_duplicate` |
-| `job_scores` | one row per job and profile: status (`scored`, `scoring_failed`, `filtered`, `blocked`), final `match_score` (`-1` = failed, `0` = rejected), `model_score`, `keyword_score`, `compat_pct`, `compat_detail_pct`, `compat_missing`, `compat_capped`, `matched_skills`, `gaps` |
+| `jobs` | the scraped posting, stored once (`job_url` is unique), with `apply_url`, `salary`, `is_duplicate`, `last_checked` (when the posting was last confirmed open or closed) |
+| `job_scores` | one row per job and profile: status (`scored`, `scoring_failed`, `filtered`, `blocked`, `closed`, `duplicate`), final `match_score` (`-1` = failed, `0` = rejected), `model_score`, `keyword_score`, `compat_pct`, `compat_detail_pct`, `compat_missing`, `compat_capped`, `matched_skills`, `gaps` |
 | `ratings`, `calibrations` | your hand ratings and every fit of the score blend, per profile |
 | `applications` | one row per job you opened to apply: `applied`, `skipped`, `opened` or `closed` |
 | `tracking`, `tracking_events` | application stage, contact, dates and notes, and the history behind `tools.stats` |

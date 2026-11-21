@@ -12,7 +12,7 @@ from pathlib import Path
 import config.settings as _settings
 from core.console import tag
 
-COLUMNS = ["date", "title", "company", "location", "score", "compat_pct", "mode", "job_url", "folder", "status"]
+COLUMNS = ["date", "title", "company", "location", "score", "compat_pct", "mode", "job_url", "folder", "status", "last_checked"]
 
 
 def enabled() -> bool:
@@ -118,4 +118,62 @@ def sync_statuses(labels: dict[str, str], path: Path | None = None, dry_run: boo
             tmp.unlink(missing_ok=True)
             tag("CSV", f"Could not write {path.name}. Is it open in Excel? Close it and run again.")
             return []
+    return changed
+
+
+def open_rows(path: Path | None = None) -> list[dict]:
+    """Rows with a blank status (jobs with documents that nobody has dealt with): url, title, company, last_checked."""
+    path = path or csv_path()
+    if not enabled() or not path.exists():
+        return []
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            return [{"job_url": r["job_url"], "title": r.get("title", ""), "company": r.get("company", ""),
+                     "last_checked": (r.get("last_checked") or "").strip()}
+                    for r in csv.DictReader(f)
+                    if r.get("job_url") and not (r.get("status") or "").strip()]
+    except (OSError, csv.Error, UnicodeDecodeError) as e:
+        tag("CSV", f"Could not read {path.name} ({e}); treating it as empty.")
+        return []
+
+
+def update_rows(updates: dict[str, dict], path: Path | None = None) -> int:
+    """updates maps job_url -> {"status": "closed", "last_checked": "2026-11-20"}.
+
+    A last_checked column is added if the file has none. A status is written only into a BLANK cell, never over
+    text you wrote. Returns how many rows changed (0 if the file is missing, CSV_LOG is off or Excel has it open).
+    """
+    path = path or csv_path()
+    if not updates or not enabled() or not path.exists():
+        return 0
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fields = list(reader.fieldnames or [])
+        rows = list(reader)
+    for column in ("status", "last_checked"):
+        if column not in fields:
+            fields.append(column)
+    changed = 0
+    for row in rows:
+        change = updates.get(row.get("job_url"))
+        if not change:
+            continue
+        if change.get("last_checked"):
+            row["last_checked"] = change["last_checked"]
+        if change.get("status") and not (row.get("status") or "").strip():
+            row["status"] = change["status"]
+        if change.get("clear_status") and (row.get("status") or "").strip().lower() == change["clear_status"]:
+            row["status"] = ""   # only text the tool wrote itself, never your own notes
+        changed += 1
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with open(tmp, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(rows)
+        tmp.replace(path)
+    except PermissionError:
+        tmp.unlink(missing_ok=True)
+        tag("CSV", f"Could not write {path.name}. Is it open in Excel? Close it and run again.")
+        return 0
     return changed

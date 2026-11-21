@@ -63,6 +63,14 @@ DELAY_BETWEEN_SEARCH_TERMS = 5.0          # seconds
 DESCRIPTION_FETCH_DELAY = (1.5, 3.5)      # random pause (min, max seconds) between LinkedIn pages
 DESCRIPTION_FETCH_TIMEOUT = 20            # seconds per LinkedIn page
 DESCRIPTION_FETCH_ATTEMPTS = 3            # tries per job before it is left for the next run (a 429 or a page with no text counts as a try)
+
+CHECK_AVAILABILITY = True                 # drop postings that are already closed (LinkedIn is read from the page the description fetch downloads anyway: no extra request)
+CHECK_AVAILABILITY_OTHER_SITES = False    # also ask Indeed and other sites whether a posting is open: one extra request per job, and many sites just answer "unknown"
+
+AVAILABILITY_ASK = True                   # after the summary, ask you about saved jobs the sites would not answer for (only when you are at the keyboard)
+AVAILABILITY_RECHECK = True               # main.py also re-checks saved jobs that have documents and marks the closed ones (one request each)
+AVAILABILITY_RECHECK_DAYS = 1             # skip a job checked within this many days (0 = check every job every run; python -m tools.check --availability ignores this)
+
 RATE_LIMIT_BACKOFF_SECONDS = 30           # first wait after a 429; doubles/triples on repeats
 RATE_LIMIT_STOP_AFTER_JOBS = None         # stop fetching for the whole run after this many jobs in a row end on a 429 (None = never; each job just gives up on its own)
 USER_AGENT = (

@@ -109,10 +109,10 @@ def print_text(d: dict, already_shown: set[str] | None = None) -> None:
     step(None, "SUMMARY", right=f"{d['generated']} · {d['profile']}")
     print()
     say("new", f"{paint(sum(new.values()), 'white', True)} in {when} · "
-        + _counts(new, (("scored", "scored"), ("filtered", "filtered"), ("blocked", "blocked"), ("duplicate", "dupes"))
+        + _counts(new, (("scored", "scored"), ("filtered", "filtered"), ("blocked", "blocked"), ("closed", "closed"), ("duplicate", "dupes"))
                   + ((("scoring_failed", "failed"),) if new.get("scoring_failed") else ())))
     say("total", f"{paint(sum(total.values()), 'white', True)} in the database · "
-        + _counts(total, (("scored", "scored"), ("filtered", "filtered"), ("blocked", "blocked"), ("duplicate", "dupes"))))
+        + _counts(total, (("scored", "scored"), ("filtered", "filtered"), ("blocked", "blocked"), ("closed", "closed"), ("duplicate", "dupes"))))
 
     # Best new matches, in full. Jobs main.py just showed in stage 5 are only counted, not repeated.
     shown = already_shown or set()
