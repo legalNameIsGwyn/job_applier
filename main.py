@@ -26,8 +26,10 @@ from core.filters import filter_reason
 from core.job_info import format_salary
 from core.calibration import blend, keyword_score
 from core.compat import compute as compute_compat, describe as describe_compat, drop_reason
+from core.availability import ask_about, can_ask, mark_closed_elsewhere, recheck_stored
 from core.console import banner, decision, job_block, job_head, note, say, section, step, tag
 
+from config.settings import AVAILABILITY_ASK, AVAILABILITY_RECHECK, CHECK_AVAILABILITY
 from config.settings import (
     MIN_SCORE, DOC_WINDOW_DAYS, HOURS_OLD, LOCATION, MAKE_DOCS, MAX_CONSECUTIVE_FAILURES,
     MAX_DOCS_PER_RUN, RESULTS_WANTED, SEARCH_TERMS, SITES,
@@ -83,6 +85,26 @@ def job_label(job: dict, limit: int = 60) -> str:
     """'Title · Company' for the log, cut to `limit` characters."""
     label = f"{job['title']} · {job['company']}"
     return label if len(label) <= limit else label[:limit - 1].rstrip() + "…"
+
+CLOSED_REASON = "Posting is closed (auto-rejected)"
+
+def save_closed(job: dict) -> None:
+    """Record a closed posting (status 'closed', score 0, no description) so it is never re-fetched or re-scored."""
+    save_job({**job, "description": ""}, {"match_score": 0.0, "matched_skills": [], "gaps": [CLOSED_REASON]},
+             status="closed", model_score=0.0)
+
+
+def drop_closed(todo):
+    """Save and remove the jobs marked closed by the description fetch or the availability check.
+    Returns (the remaining jobs, how many were closed)."""
+    if "closed" not in todo.columns:
+        return todo, 0
+    gone = todo["closed"].fillna(False).astype(bool)
+    for _, row in todo[gone].iterrows():
+        job = job_from_row(row)
+        tag("FILTER", f"Removed: {job_label(job)}: the posting is closed", "bad")
+        save_closed(job)
+    return todo[~gone], int(gone.sum())
 
 def short_reason(reason: str) -> str:
     """'Filtered: senior-level title ('Senior')' -> 'senior-level title ('Senior')'. Drops '(auto-rejected)' too."""
@@ -172,6 +194,33 @@ def generate_documents(min_score: float = MIN_SCORE, max_docs: int = MAX_DOCS_PE
     return created
 
 
+def recheck_saved(scraped: set[str]) -> list:
+    """Ask whether saved jobs that have documents are still open, and mark the closed ones.
+    Jobs in this run's scrape are skipped (they were just seen). Never breaks a run.
+    Returns the jobs the sites would not answer for (see ask_unanswered)."""
+    if not (CHECK_AVAILABILITY and AVAILABILITY_RECHECK):
+        return []
+    step(None, "RE-CHECK", "Are the jobs that already have documents still open? Closed ones are marked so you skip them.")
+    print()
+    try:
+        return recheck_stored(skip_urls=scraped)["unanswered"]
+    except Exception as e:
+        decision("warn", f"re-check skipped: {e}")
+        return []
+
+
+def ask_unanswered(rows: list) -> None:
+    """After the summary, only when AVAILABILITY_ASK is on: open the link of each saved job no site would answer for,
+    one at a time, and ask whether it is still open. Never breaks a run."""
+    if not (rows and AVAILABILITY_ASK and can_ask()):
+        return
+    step(None, "CHECK YOURSELF", f"{len(rows)} saved job(s) could not be checked automatically. Each link opens in your browser; tell me if it is still open.")
+    try:
+        ask_about(rows, open_each=True)
+    except Exception as e:
+        decision("warn", f"manual check skipped: {e}")
+
+
 def show_results(results: list, filtered: int, duplicates: int, min_score: float) -> set[str]:
     """Stage 5: counts for this run and the best jobs in full. Returns the URLs shown in full."""
     step(5, "RESULTS", "This run's best jobs, with what the posting asks for and where you fall short.")
@@ -228,7 +277,7 @@ async def main(
 
     # ---- 1 SCRAPE
     search_terms = [search_term] if isinstance(search_term, str) else list(search_term)
-    step(1, "SCRAPE", f"Searching {', '.join(site_names)} for {len(search_terms)} search term(s) in {location}.")
+    step("SCRAPE", f"Searching {', '.join(site_names)} for {len(search_terms)} search term(s) in {location}.")
     print()
     df = await scrape_multiple_terms(
         site_names=site_names,
@@ -253,15 +302,16 @@ async def main(
     say("found", f"{len(df)} unique jobs: {len(df) - len(todo)} already scored earlier, {len(todo)} new")
 
     # ---- 2 PRE-FILTER: title / company rules. These need no description, so they run BEFORE any description is fetched and save those requests.
-    step(2, "PRE-FILTER", "Title and company rules, checked before any description is downloaded.")
+    step("PRE-FILTER", "Title and company rules, checked before any description is downloaded.")
 
     filtered_count, kept = 0, []
     for n, (idx, row) in enumerate(todo.iterrows(), start=1):
         job = job_from_row(row)
         tag("FILTER", f"Checking {n}/{len(todo)}: {job_label(job)}")
-        reason = filter_reason(job["title"], job["company"])
+        blocker = blocked_reason(job["title"], "")   # a clearance or citizenship stated in the title itself
+        reason = blocker or filter_reason(job["title"], job["company"])
         if reason:
-            save_filtered(job, reason)
+            (save_blocked if blocker else save_filtered)(job, reason)
             filtered_count += 1
             tag("FILTER", f"Removed: {short_reason(reason)}", "bad")
         else:
@@ -269,7 +319,7 @@ async def main(
             tag("FILTER", "Kept: title and company rules passed", "ok")
 
     print()
-    
+
     if todo.empty:
         say("result", "nothing to check: every job was already handled on an earlier run")
     else:
@@ -277,9 +327,12 @@ async def main(
     todo = todo.loc[kept]
 
     # ---- 3 DESCRIPTIONS: only for jobs we still need to score (saves requests on re-runs)
-    step(3, "DESCRIPTIONS", "Downloading the full posting for each job that passed the pre-filter.")
+    step("DESCRIPTIONS", "Downloading the full posting for each job that passed the pre-filter.")
     print()
     todo = await asyncio.to_thread(fill_missing_descriptions, todo)
+    todo = await asyncio.to_thread(mark_closed_elsewhere, todo)   # other sites; off unless CHECK_AVAILABILITY_OTHER_SITES
+    todo, closed_count = drop_closed(todo)
+    filtered_count += closed_count
 
     # A job without a description can't be scored meaningfully. Skip it without
     # saving anything, so it is picked up again on the next run.
@@ -296,13 +349,15 @@ async def main(
         if skipped:
             note("Jobs without descriptions usually mean LinkedIn is rate limiting; "
                  "wait a while or lower results_wanted.")
+        unanswered = recheck_saved(set(df["job_url"]))
         if make_docs:  # still catch up on documents for jobs scored earlier
             generate_documents(doc_min_score, max_docs, number=4)
         show_summary()
+        ask_unanswered(unanswered)
         return
 
     # ---- 4 SCORING: each job is saved right after it is scored
-    step(4, "SCORING",
+    step("SCORING",
          "Suitability is how well you fit this kind of job for your profile, out of 10. "
          "Compatibility is the share of the posting's listed requirements your resume meets.")
     results = []
@@ -379,6 +434,8 @@ async def main(
                             f"and is '{MODEL}' pulled? Progress so far is saved.")
             break
 
+    unanswered = recheck_saved(set(df["job_url"]))   # before RESULTS and DOCUMENTS, so closed jobs get no documents
+
     # ---- 5 RESULTS
     shown_urls = show_results(results, filtered_count, duplicates, doc_min_score)
 
@@ -387,6 +444,7 @@ async def main(
         generate_documents(doc_min_score, max_docs)
 
     show_summary(shown_urls)
+    ask_unanswered(unanswered)
     print()
 
 

@@ -18,7 +18,9 @@ __pycache__/
 # Diagnostics
 linkedin_check.*
 page_*.
+testers/
 
-# Pi Agent
+# AI Agent
 AGENTS.md
 findings.md
+_tree.txt

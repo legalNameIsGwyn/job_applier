@@ -7,6 +7,10 @@ It works on the active profile: --profile NAME, or DEFAULT_PROFILE in config/set
                                                  # (lists them, asks, then marks them blocked and clears the description)
     python -m tools.check --blockers --show-all  # list every job, not just the first 15 per group
     python -m tools.check --blockers --yes       # don't ask for confirmation
+    python -m tools.check --mark URL [URL ...]   # you checked it yourself: mark closed (add --as open to undo)
+    python -m tools.check --availability         # ask each saved job with documents whether it is still open
+                                                 # (marks closed ones; ignores AVAILABILITY_RECHECK_DAYS;
+                                                 #  with AVAILABILITY_ASK on, it then opens the ones no site answers for, one by one)
 
 To add a check, write a function(assume_yes, show_all, db_path) and add it to CHECKS at the bottom of this file;
 it gets its own --flag automatically. (tools.rescore scores jobs again with the model; this tool never does.)
@@ -131,11 +135,26 @@ def check_blockers(assume_yes=False, show_all=False, db_path=DB_PATH) -> dict:
     return {"blocked": len(found), "cleared": cleared}
 
 
+# ------------------------------------------------------------------------------------ --availability
+
+
+def check_availability(assume_yes=False, show_all=False, db_path=DB_PATH) -> dict:
+    """Re-check saved jobs that have documents. Needs the internet, no model. Takes no confirmation: it only marks closed."""
+    from config.settings import AVAILABILITY_ASK
+    from core.availability import ask_about, can_ask, recheck_stored
+    init_db(db_path)
+    counts = recheck_stored(db_path=db_path, days=0)
+    if counts["unanswered"] and AVAILABILITY_ASK and can_ask():   # AVAILABILITY_ASK: open each link and ask
+        ask_about(counts["unanswered"], db_path, open_each=True)
+    return counts
+
+
 # ------------------------------------------------------------------------------------ the tool
 
 # flag name -> (function, help text). Each function takes (assume_yes, show_all, db_path).
 CHECKS = {
     "blockers": (check_blockers, "block saved jobs that need a clearance or citizenship, and clear their descriptions"),
+    "availability": (check_availability, "ask each saved job that has documents whether it is still open, and mark the closed ones"),
 }
 
 
@@ -143,13 +162,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Check jobs already in the database (no scraping, no model).")
     for name, (_, text) in CHECKS.items():
         parser.add_argument(f"--{name}", action="store_true", help=text)
+    parser.add_argument("--mark", nargs="+", metavar="URL", help="mark these jobs closed by hand (see --as)")
+    parser.add_argument("--as", dest="mark_as", choices=("closed", "open"), default="closed",
+                        help="with --mark: 'closed' (default), or 'open' to undo a closed mark")
     parser.add_argument("--show-all", action="store_true", help="list every job, not just the first 15 per group")
     parser.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
     add_profile_arguments(parser)
     args = parser.parse_args()
     apply_profile_arguments(args)
+    if args.mark:
+        from core.availability import mark_jobs
+        mark_jobs(args.mark, args.mark_as)
     chosen = [name for name in CHECKS if getattr(args, name)]
-    if not chosen:
+    if not chosen and not args.mark:
         parser.print_help()
     for name in chosen:
         CHECKS[name][0](args.yes, args.show_all)

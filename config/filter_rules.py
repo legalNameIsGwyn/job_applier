@@ -57,6 +57,7 @@ BLOCKER_PATTERNS = [
     r"requires? (u\.?s\.?|united states) citizenship",
     r"citizenship (is )?required",
     r"u\.?s\.? citizens? only",
+    r"(?<!\bno )(?<!\bnot )\b(active|current|valid)\s+(dod\s+)?(secret|top secret|ts/sci|ts)\b",  
 ]
 
 # ...unless the posting says one of these (e.g. "no clearance required").

@@ -6,7 +6,7 @@
 
 `profiles\<name>\applications.csv` is the list you click through. One row per job that has documents:
 
-`date, title, company, location, score, compat_pct, mode, job_url, folder, status`
+`date, title, company, location, score, compat_pct, mode, job_url, folder, status, last_checked`
 
 - Rows are only ever appended, and a job already in the file is never added again. A job in the CSV is never
   redone, even if you delete its folder; delete its row to redo it.
@@ -19,6 +19,8 @@
   `CSV_LOG_PATH` moves it.
 - `python -m tools.csv_sync` (`--dry-run` to look first) fills **blank** `status` cells with `auto-applied` or `closed`
   for jobs the database knows the bot applied to or found closed. A status you typed is never changed.
+- `last_checked` is the date the availability re-check last got an answer for the job (added to older files automatically). A re-check
+  that finds a job closed writes `closed` into a **blank** `status` only; `python -m tools.check --mark URL` does the same by hand.
 - Documents are not made for jobs that are already in the CSV, that the bot applied to, or that it found closed.
 
 ---

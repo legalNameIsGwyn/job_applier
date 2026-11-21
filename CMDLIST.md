@@ -34,7 +34,10 @@ $env:JOB_PROFILE = "software"
 | `python -m tools.stats` | What's working: funnel, score vs outcome, breakdowns, trends |
 
 While `main.py` runs, each job gets `[FILTER] Checking job: …` and then `Removed: …` (with the reason) or `Accepted: …`.
-A job removed for a clearance or citizenship requirement is saved with status `blocked`, the reason and no description.
+A job removed for a clearance or citizenship requirement (in its title, or in its description) is saved with status `blocked`, the reason and no description.
+A posting LinkedIn says is closed is saved with status `closed` and no description. After scoring, a `RE-CHECK` step asks each saved job that has documents
+whether it is still open (`[AVAILABILITY] Checking n/N`, with the link). Jobs it can't check are left for you if `AVAILABILITY_ASK = True`: each link opens in your browser and you answer
+`o` (open), `c` (closed), `b` (reopen the link), `s` (skip) or `q` (stop).
 
 ## Viewing jobs: `tools.show_jobs`
 | Flag | Meaning |
@@ -73,6 +76,9 @@ A job removed for a clearance or citizenship requirement is saved with status `b
 | `python -m tools.check --blockers` | Lists saved jobs that need a clearance or citizenship (grouped, with links), asks, then marks them `blocked` and clears their descriptions. Jobs you have an application for are skipped |
 | `python -m tools.check --blockers --show-all` | List every job, not just the first 15 per group |
 | `python -m tools.check --blockers -y` | Don't ask for confirmation |
+| `python -m tools.check --availability` | Asks each saved job that has documents whether it is still open and marks the closed ones. No model; ignores `AVAILABILITY_RECHECK_DAYS`; with `AVAILABILITY_ASK` on, it then opens the unanswered ones one by one |
+| `python -m tools.check --mark URL [URL ...]` | You checked the posting yourself: mark it closed (database and CSV). A job you applied to is never changed |
+| `python -m tools.check --mark URL --as open` | Undo a closed mark |
 
 ## Rating and calibration: `tools.rating`
 | Flag            | Meaning                                              |
@@ -159,7 +165,7 @@ Output goes to `profiles\<name>\applications\<company>_<title>_<hash>\` (resume,
 ## Notes
 - **Ollama:** scoring and writing use a local model, set by `OLLAMA_MODEL` in `config\settings.py`. The environment variable of the same name overrides it for one PowerShell window only.
 - **Database:** `data\jobs_db.sqlite`. All state persists between runs. Jobs are stored once; each profile scores them separately.
-- **Statuses:** `scored`, `scoring_failed`, `filtered` (title, company, years or applicants), `blocked` (clearance or citizenship; no description kept) and `duplicate`.
+- **Statuses:** `scored`, `scoring_failed`, `filtered` (title, company, years or applicants), `blocked` (clearance or citizenship; no description kept), `closed` (posting closed; no description kept) and `duplicate`. A saved job found closed later gets an `applications` row with status `closed` instead; its score and documents stay.
 - **Licenses and certifications:** list them in `resume.json` (`licenses`, `certifications`). A job that requires one you don't list is flagged with `⚠ license`, never dropped.
 - **Never submits:** `apply_jobs.py` fills forms and stops. You review and send each one yourself.
 - **More detail:** see the [README](README.md) and the pages in `docs\`.
