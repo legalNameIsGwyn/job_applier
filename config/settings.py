@@ -15,6 +15,7 @@ ACTIVE_PROFILE = DEFAULT_PROFILE
 
 # A CSV of jobs to click through and apply to by hand, next to each profile's applications folder.
 CSV_LOG = True
+CSV_FORMAT = "xlsx" # "csv"
 
 # --------------------------------------------------------------------- files and folders
 RESUME_FILE = PROJECT_DIR / "data" / "resume.json"                 # your resume data (stays outside config/)

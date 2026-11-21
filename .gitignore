@@ -10,6 +10,7 @@ profiles/*/resume.json
 profiles/*/applications/
 profiles/lomita-software
 profiles/*/applications.csv
+profiles/*/applications.xlsx
 
 # Python
 __pycache__/
