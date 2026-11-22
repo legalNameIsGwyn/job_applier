@@ -11,6 +11,10 @@ from contextlib import contextmanager
 _STOP = threading.Event()
 
 
+class Abandon(Exception):
+    """Raised by ask() when you press Ctrl-C at a question: drop what is being made and stop."""
+
+
 def request_stop() -> None:
     """Ask the running loop to stop at the next safe point."""
     _STOP.set()
@@ -58,3 +62,22 @@ def soft_stop():
         yield
     finally:
         restore()
+
+
+def ask(prompt: str = "") -> str:
+    """input() for questions asked during a run.
+
+    Ctrl-C (or Ctrl-Z / a closed input) at the question asks the run to stop and raises Abandon.
+    The soft-stop Ctrl-C is put back afterwards.
+    """
+    on_main = threading.current_thread() is threading.main_thread()
+    previous = signal.signal(signal.SIGINT, signal.default_int_handler) if on_main else None
+    try:
+        return input(prompt)
+    except (KeyboardInterrupt, EOFError):
+        print()
+        request_stop()
+        raise Abandon()
+    finally:
+        if on_main:
+            signal.signal(signal.SIGINT, previous)

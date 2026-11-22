@@ -28,7 +28,7 @@ from core.calibration import blend, keyword_score
 from core.compat import compute as compute_compat, describe as describe_compat, drop_reason
 from core.availability import ask_about, can_ask, mark_closed_elsewhere, recheck_stored
 from core.console import banner, decision, job_block, job_head, note, say, section, step, tag
-from core.stop import enable_soft_stop, reset as reset_stop, soft_stop, stop_requested
+from core.stop import Abandon, ask as ask_in_run, enable_soft_stop, reset as reset_stop, soft_stop, stop_requested
 
 from config.settings import AVAILABILITY_ASK, AVAILABILITY_RECHECK, CHECK_AVAILABILITY
 from config.settings import (
@@ -171,21 +171,36 @@ def generate_documents(min_score: float = MIN_SCORE, max_docs: int = MAX_DOCS_PE
     jobs = jobs[:max_docs] if max_docs else jobs
 
     created, failures = 0, 0
-    for job in jobs:
+    stopped_at = None
+    # Bridge lines are reviewed only in bridge mode (create_application decides), only when REVIEW_BRIDGES is on,
+    # and only when someone is at the keyboard.
+    review = bool(getattr(_settings, "REVIEW_BRIDGES", False)) and can_ask()
+    restore_ctrl_c = enable_soft_stop()   # Ctrl-C now means: finish this job's documents, then stop
+    for n, job in enumerate(jobs, start=1):
+        if stop_requested():
+            stopped_at = n
+            break
         print()
         job_head(job["title"], job["company"], job["job_url"])
         try:
-            if create_application(job):
+            if create_application(job, review=review, ask=ask_in_run):
                 created += 1
                 rows += log_job(job, job_folder(job).name, choose_mode(job)[0])
             failures = 0
+        except Abandon:   # Ctrl-C at a bridge-line question: nothing was written for this job yet
+            stopped_at = n
+            break
         except Exception as e:
             failures += 1
             decision("bad", f"failed: {e}")
             if failures >= MAX_CONSECUTIVE_FAILURES:
                 decision("bad", "stopped: too many failures in a row. Is Ollama running?")
                 break
+    restore_ctrl_c()
+    reset_stop()
     print()
+    if stopped_at:
+        decision("warn", f"stopped: Ctrl-C pressed. {len(jobs) - stopped_at + 1} job(s) still have no documents; they are made next run.")
     result = f"{created} folder(s) created"
     if csv_enabled():
         result += f" · {rows} row(s) added to {csv_path().name}"
@@ -382,6 +397,7 @@ async def main(
     cal = load_calibration()  # read once, not once per job
     duplicates = 0
     stopped = False
+    model_down = False
     restore_ctrl_c = enable_soft_stop()   # Ctrl-C now means: finish this job, then stop scoring
 
     for _, row in todo.iterrows():
@@ -453,6 +469,7 @@ async def main(
             print()
             decision("bad", f"stopped: {MAX_CONSECUTIVE_FAILURES} failures in a row. Is Ollama running "
                             f"and is '{MODEL}' pulled? Progress so far is saved.")
+            model_down = True
             break
 
     restore_ctrl_c()
@@ -461,13 +478,17 @@ async def main(
         print()
         decision("warn", "stopped: Ctrl-C pressed. Jobs scored so far are saved; the rest are retried next run.")
 
-    unanswered = recheck_saved(set(df["job_url"]))
+    unanswered = recheck_saved(set(df["job_url"]))   # before RESULTS and DOCUMENTS, so closed jobs get no documents
 
     # ---- 5 RESULTS
     shown_urls = show_results(results, filtered_count, duplicates, doc_min_score)
 
     # ---- 6 DOCUMENTS: resume + cover letter for the best matches
-    if make_docs:
+    if make_docs and model_down:
+        print()
+        decision("warn", f"documents skipped: scoring failed {MAX_CONSECUTIVE_FAILURES} times in a row, so the model is "
+                         "probably down. Start Ollama and run again to make them.")
+    elif make_docs:
         generate_documents(doc_min_score, max_docs)
 
     show_summary(shown_urls)

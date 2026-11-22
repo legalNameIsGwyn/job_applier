@@ -25,6 +25,7 @@ from core.console import INDENT, link, tag
 from core.job_status import check_open
 from core.stop import stop_requested, wait as stop_wait
 
+
 def _label(row) -> str:
     parts = [str(row.get(c)).strip() for c in ("title", "company") if str(row.get(c) or "").strip() not in ("", "nan", "None")]
     label = " · ".join(parts) or str(row.get("job_url", ""))
@@ -95,7 +96,7 @@ def pick_rows(csv_rows: list, db_jobs: dict, app_status: dict, tracked: set, ski
 
 
 def check_with_retries(url: str, check=check_open, tries: int = DESCRIPTION_FETCH_ATTEMPTS,
-                       backoff: float = RATE_LIMIT_BACKOFF_SECONDS, sleep=time.sleep, log=tag) -> str:
+                       backoff: float = RATE_LIMIT_BACKOFF_SECONDS, sleep=stop_wait, log=tag) -> str:
     """open / closed / unknown. A LinkedIn job that gets no answer (a 429, usually) is tried again after a wait;
     other sites are asked once, because 'unknown' from them is a real answer."""
     tries = max(1, int(tries)) if "linkedin.com" in url else 1
@@ -133,7 +134,7 @@ def _stamp(url: str, db_path) -> None:
 
 
 def recheck_stored(skip_urls=(), db_path=DB_PATH, days: float = AVAILABILITY_RECHECK_DAYS, check=check_open,
-                   delay=DESCRIPTION_FETCH_DELAY, sleep=time.sleep) -> dict:
+                   delay=DESCRIPTION_FETCH_DELAY, sleep=stop_wait) -> dict:
     """Ask each saved job that has documents (a row in the CSV with no status) whether it is still open.
 
     Skipped: jobs in skip_urls (this run's scrape), jobs with an application row that is applied / skipped / closed,

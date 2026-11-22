@@ -61,6 +61,10 @@ until you reach `FULL_TRUST_RATINGS`, and every job's score is recomputed. Each 
 `--report` shows the current fit, `--latest-only` / `--all-ratings` choose what to fit on, `--rerate` goes back over
 old ratings, `--reset` deletes this profile's ratings and fits (asks first).
 
+If scoring fails `MAX_CONSECUTIVE_FAILURES` times in a row (usually because Ollama is not running), the run stops scoring
+and skips the documents stage with a one-line notice instead of making more failing model calls. Start Ollama and run
+again; jobs that failed are retried.
+
 ## Compatibility percentage (`core\compat.py`)
 
 Each scored job gets two numbers:
@@ -96,6 +100,11 @@ no tables or images, standard headings.
 | `standard` | The posting's wording applied to your real skills and projects | 70% or more |
 | `bridge` | Also ties real experience to requirements you lack, one honest sentence each (up to `MAX_BRIDGE_LINES`) | 30% to 70% |
 | `boilerplate` | Your resume exactly as written plus a short 2-paragraph letter from the job title, company and resume facts (the posting is deliberately not shown to the model) | under 30% |
+
+**Reviewing bridge lines.** Set `REVIEW_BRIDGES = True` in `config/settings.py` and `main.py` shows each proposed bridge
+line for you to accept, edit or skip before the documents are built. It only happens in bridge mode and only when you are
+at the keyboard; scheduled or piped runs never ask. Press Ctrl-C at a question to abandon that job and stop the batch; it
+is made on the next run.
 
 `auto` (the default) uses the detailed percentage, falling back to the rough one, with the thresholds
 `TAILOR_AUTO_BRIDGE_BELOW` and `TAILOR_AUTO_BOILERPLATE_BELOW`. Bridge lines must name a real source on the resume, may

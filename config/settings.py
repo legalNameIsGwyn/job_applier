@@ -92,6 +92,7 @@ TAILOR_MAX_SKILLS = 12    # skills the model may move to the front (all skills a
 FONT = "Calibri"
 COVER_LETTER_GREETING = "Good day,"
 COVER_LETTER_SIGN_OFF = "Sincerely,"
+REVIEW_BRIDGES = True   # scheduled or piped runs never ask.
 
 # ------------------------------------------------------------------------------ file names
 # Names are built from your resume.json and the job. ".docx" is added for you.
