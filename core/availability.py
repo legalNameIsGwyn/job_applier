@@ -23,7 +23,7 @@ from config.settings import (
 from core import csv_log
 from core.console import INDENT, link, tag
 from core.job_status import check_open
-
+from core.stop import stop_requested, wait as stop_wait
 
 def _label(row) -> str:
     parts = [str(row.get(c)).strip() for c in ("title", "company") if str(row.get(c) or "").strip() not in ("", "nan", "None")]
@@ -45,6 +45,9 @@ def mark_closed_elsewhere(df: pd.DataFrame, enabled: bool = CHECK_AVAILABILITY_O
         return df
     tag("AVAILABILITY", f"Asking {len(todo)} job(s) on other sites whether they are still open.")
     for n, idx in enumerate(todo, start=1):
+        if stop_requested():
+            tag("AVAILABILITY", "Stopped by you. The jobs not asked about yet are kept as open.", "warn")
+            break
         row = df.loc[idx]
         status = check(row["job_url"])
         if status == "closed":
@@ -53,7 +56,7 @@ def mark_closed_elsewhere(df: pd.DataFrame, enabled: bool = CHECK_AVAILABILITY_O
         else:
             tag("AVAILABILITY", f"{n}/{len(todo)}: {_label(row)}: {'open' if status == 'open' else 'no answer, kept'}")
         if n < len(todo):
-            time.sleep(random.uniform(*delay))
+            stop_wait(random.uniform(*delay))
     return df
 
 
@@ -103,6 +106,8 @@ def check_with_retries(url: str, check=check_open, tries: int = DESCRIPTION_FETC
             break
         log("AVAILABILITY", f"No answer (try {attempt}/{tries}), waiting {backoff * attempt:g}s...", "warn")
         sleep(backoff * attempt)
+        if stop_requested():
+            break
     return status
 
 
@@ -149,11 +154,15 @@ def recheck_stored(skip_urls=(), db_path=DB_PATH, days: float = AVAILABILITY_REC
     updates = {}
     try:
         for n, row in enumerate(todo, start=1):
+            if stop_requested():
+                break
             url = row["job_url"]
             label = _label({"title": row["title"], "company": row["company"], "job_url": url})
             tag("AVAILABILITY", f"Checking {n}/{len(todo)}: {label}")
             print(INDENT + "  " + link(url))
             status = check_with_retries(url, check, sleep=sleep)
+            if status == "unknown" and stop_requested():
+                break   # stopped while waiting on this job: it is not counted and is checked again next run
             if status == "unknown":
                 counts["no_answer"] += 1
                 counts["unanswered"].append(row)
@@ -174,6 +183,8 @@ def recheck_stored(skip_urls=(), db_path=DB_PATH, days: float = AVAILABILITY_REC
                 sleep(random.uniform(*delay))
     finally:   # also on Ctrl-C: what was checked so far is written down
         csv_log.update_rows(updates)
+    if stop_requested():
+        tag("AVAILABILITY", "Stopped by you. The jobs not checked yet are checked next run.", "warn")
     tag("AVAILABILITY", f"{counts['open']} open, {counts['closed']} closed"
         + (f", {counts['no_answer']} gave no answer (retried next run)" if counts["no_answer"] else "") + ".")
     return counts

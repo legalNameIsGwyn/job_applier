@@ -204,10 +204,13 @@ def recheck_saved(scraped: set[str]) -> list:
     step(None, "RE-CHECK", "Are the jobs that already have documents still open? Closed ones are marked so you skip them.")
     print()
     try:
-        return recheck_stored(skip_urls=scraped)["unanswered"]
+        with soft_stop():
+            return recheck_stored(skip_urls=scraped)["unanswered"]
     except Exception as e:
         decision("warn", f"re-check skipped: {e}")
         return []
+    finally:
+        reset_stop()
 
 
 def ask_unanswered(rows: list) -> None:
@@ -341,7 +344,9 @@ async def main(
             decision("warn", "fetch stopped: skipping to the summary")
             show_summary()
             return
-    todo = await asyncio.to_thread(mark_closed_elsewhere, todo)   # other sites; off unless CHECK_AVAILABILITY_OTHER_SITES  # other sites; off unless CHECK_AVAILABILITY_OTHER_SITES
+    with soft_stop():
+        todo = await asyncio.to_thread(mark_closed_elsewhere, todo)   # other sites; off unless CHECK_AVAILABILITY_OTHER_SITES
+    reset_stop()
     todo, closed_count = drop_closed(todo)
     filtered_count += closed_count
 
