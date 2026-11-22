@@ -121,6 +121,11 @@ or marked duplicate are skipped (matched by `job_url`), and Ctrl-C loses nothing
 but only new jobs cost description fetching and model time. Jobs whose scoring failed, or that had no description
 yet, are retried on the next run.
 
+**Stopping a run.** Press Ctrl-C once while descriptions are downloading and the download stops after the current request.
+By default the run then scores the descriptions already downloaded and carries on; set `STOP_FETCH_THEN_SCORE = False`
+in `config/settings.py` to go straight to the summary instead. Jobs not downloaded are retried next run. A second Ctrl-C
+does nothing extra.
+
 ---
 
 ## Profiles

@@ -79,6 +79,10 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 
+# ------------------------------------------------------------------------ stopping a run
+# Ctrl-C while the descriptions are downloading stops the download.
+STOP_FETCH_THEN_SCORE = True   # True = score the descriptions already downloaded; False = go straight to the summary
+
 # ----------------------------------------------------------------------------- documents
 MAKE_DOCS = True          # create a resume + cover letter automatically after scoring
 MAX_DOCS_PER_RUN = None     # most NEW jobs to make documents for per run

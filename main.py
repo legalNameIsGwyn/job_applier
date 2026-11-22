@@ -28,6 +28,7 @@ from core.calibration import blend, keyword_score
 from core.compat import compute as compute_compat, describe as describe_compat, drop_reason
 from core.availability import ask_about, can_ask, mark_closed_elsewhere, recheck_stored
 from core.console import banner, decision, job_block, job_head, note, say, section, step, tag
+from core.stop import reset as reset_stop, soft_stop, stop_requested
 
 from config.settings import AVAILABILITY_ASK, AVAILABILITY_RECHECK, CHECK_AVAILABILITY
 from config.settings import (
@@ -329,8 +330,18 @@ async def main(
     # ---- 3 DESCRIPTIONS: only for jobs we still need to score (saves requests on re-runs)
     step("DESCRIPTIONS", "Downloading the full posting for each job that passed the pre-filter.")
     print()
-    todo = await asyncio.to_thread(fill_missing_descriptions, todo)
-    todo = await asyncio.to_thread(mark_closed_elsewhere, todo)   # other sites; off unless CHECK_AVAILABILITY_OTHER_SITES
+    with soft_stop():   # Ctrl-C here stops the download instead of waiting for it to finish
+        todo = await asyncio.to_thread(fill_missing_descriptions, todo)
+    if stop_requested():
+        reset_stop()
+        print()
+        if getattr(_settings, "STOP_FETCH_THEN_SCORE", True):
+            decision("warn", "fetch stopped: scoring the descriptions already downloaded")
+        else:
+            decision("warn", "fetch stopped: skipping to the summary")
+            show_summary()
+            return
+    todo = await asyncio.to_thread(mark_closed_elsewhere, todo)   # other sites; off unless CHECK_AVAILABILITY_OTHER_SITES  # other sites; off unless CHECK_AVAILABILITY_OTHER_SITES
     todo, closed_count = drop_closed(todo)
     filtered_count += closed_count
 
