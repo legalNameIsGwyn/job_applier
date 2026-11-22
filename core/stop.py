@@ -30,16 +30,14 @@ def wait(seconds: float) -> bool:
     return _STOP.wait(seconds)
 
 
-@contextmanager
-def soft_stop():
-    """While active, Ctrl-C asks running loops to stop instead of raising KeyboardInterrupt.
+def enable_soft_stop():
+    """Make Ctrl-C ask running loops to stop instead of raising KeyboardInterrupt.
 
-    A second Ctrl-C does nothing more. The normal Ctrl-C is put back when the block ends.
-    Only works in the main thread; elsewhere it does nothing.
+    Returns a function that puts the normal Ctrl-C back. A second Ctrl-C does nothing more.
+    Only works in the main thread; elsewhere it changes nothing.
     """
     if threading.current_thread() is not threading.main_thread():
-        yield
-        return
+        return lambda: None
 
     def on_ctrl_c(signum, frame):
         if not _STOP.is_set():
@@ -49,7 +47,14 @@ def soft_stop():
         request_stop()
 
     previous = signal.signal(signal.SIGINT, on_ctrl_c)
+    return lambda: signal.signal(signal.SIGINT, previous)
+
+
+@contextmanager
+def soft_stop():
+    """enable_soft_stop() as a with-block: the normal Ctrl-C is put back when the block ends."""
+    restore = enable_soft_stop()
     try:
         yield
     finally:
-        signal.signal(signal.SIGINT, previous)
+        restore()

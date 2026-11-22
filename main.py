@@ -28,7 +28,7 @@ from core.calibration import blend, keyword_score
 from core.compat import compute as compute_compat, describe as describe_compat, drop_reason
 from core.availability import ask_about, can_ask, mark_closed_elsewhere, recheck_stored
 from core.console import banner, decision, job_block, job_head, note, say, section, step, tag
-from core.stop import reset as reset_stop, soft_stop, stop_requested
+from core.stop import enable_soft_stop, reset as reset_stop, soft_stop, stop_requested
 
 from config.settings import AVAILABILITY_ASK, AVAILABILITY_RECHECK, CHECK_AVAILABILITY
 from config.settings import (
@@ -376,8 +376,13 @@ async def main(
     known = load_known()      # jobs already scored, to spot the same posting listed again
     cal = load_calibration()  # read once, not once per job
     duplicates = 0
+    stopped = False
+    restore_ctrl_c = enable_soft_stop()   # Ctrl-C now means: finish this job, then stop scoring
 
     for _, row in todo.iterrows():
+        if stop_requested():
+            stopped = True
+            break
         job = job_from_row(row)
         print()                   # <-- delete this line to remove the blank line between jobs
         job_head(job["title"], job["company"], job["job_url"])
@@ -445,7 +450,13 @@ async def main(
                             f"and is '{MODEL}' pulled? Progress so far is saved.")
             break
 
-    unanswered = recheck_saved(set(df["job_url"]))   # before RESULTS and DOCUMENTS, so closed jobs get no documents
+    restore_ctrl_c()
+    reset_stop()
+    if stopped:
+        print()
+        decision("warn", "stopped: Ctrl-C pressed. Jobs scored so far are saved; the rest are retried next run.")
+
+    unanswered = recheck_saved(set(df["job_url"]))
 
     # ---- 5 RESULTS
     shown_urls = show_results(results, filtered_count, duplicates, doc_min_score)

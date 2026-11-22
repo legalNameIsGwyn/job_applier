@@ -123,8 +123,9 @@ yet, are retried on the next run.
 
 **Stopping a run.** Press Ctrl-C once while descriptions are downloading and the download stops after the current request.
 By default the run then scores the descriptions already downloaded and carries on; set `STOP_FETCH_THEN_SCORE = False`
-in `config/settings.py` to go straight to the summary instead. Jobs not downloaded are retried next run. A second Ctrl-C
-does nothing extra.
+in `config/settings.py` to go straight to the summary instead. Press Ctrl-C once while scoring and the current job
+finishes and is saved, then the run goes on to results, documents and the summary. Jobs not downloaded or scored are
+retried next run. A second Ctrl-C does nothing extra.
 
 ---
 
