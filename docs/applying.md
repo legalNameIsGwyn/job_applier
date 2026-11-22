@@ -2,26 +2,35 @@
 
 # Applying and tracking
 
-## Applications CSV
+## Applications list
 
-`profiles\<name>\applications.csv` is the list you click through. One row per job that has documents:
+`profiles\<name>\applications.xlsx` is the list you click through. One row per job that has documents:
 
-`date, title, company, location, score, compat_pct, mode, job_url, folder, status, last_checked`
+`job_url, score, compat_pct, title, folder, status, company, location, mode, date, last_checked`
 
-- Rows are only ever appended, and a job already in the file is never added again. A job in the CSV is never
-  redone, even if you delete its folder; delete its row to redo it.
+- **Sorted every time it is written:** newest date first, then jobs with no `status`, then highest `score`, then
+  highest `compat_pct`. Jobs with a `status` sit at the bottom of their date. Sorting by hand in Excel is undone on
+  the next write.
+- **Links:** `job_url` links to the posting and `folder` links to that application's folder. The links are rewritten
+  automatically the first time any command reads the sheet after you move the project.
+- A job already in the file is never added again. A job in the list is never redone, even if you delete its folder;
+  delete its row to redo it.
 - `status` is yours. Write anything (applied, rejected, interview, skip). **Any non-blank status counts as handled**,
   so auto-apply skips that job.
-- A job that has a folder but no CSV row (made before the CSV existed) gets its row added on the next run, with the
+- A job that has a folder but no row (made before the list existed) gets its row added on the next run, with the
   mode left blank.
-- The compat column is the detailed percentage, or the rough one if there is no detailed one.
-- Close the file in Excel before a run, or the new rows are added on the next run. `CSV_LOG = False` turns the CSV off;
-  `CSV_LOG_PATH` moves it.
+- The compat column is the detailed percentage, or the rough one if there is no detailed one. `score` and
+  `compat_pct` are stored as numbers.
+- Close the file in Excel before a run, or the new rows are added on the next run. `CSV_LOG = False` turns the list
+  off; `CSV_LOG_PATH` moves it.
+- **File type:** `LOG_FORMAT = "xlsx"` (default) or `"csv"` in `config/settings.py`. With `"csv"` you get
+  `applications.csv` instead (same sorting, no links). The first time the `.xlsx` is read, an existing
+  `applications.csv` beside it is imported once and left untouched.
 - `python -m tools.csv_sync` (`--dry-run` to look first) fills **blank** `status` cells with `auto-applied` or `closed`
   for jobs the database knows the bot applied to or found closed. A status you typed is never changed.
 - `last_checked` is the date the availability re-check last got an answer for the job (added to older files automatically). A re-check
   that finds a job closed writes `closed` into a **blank** `status` only; `python -m tools.check --mark URL` does the same by hand.
-- Documents are not made for jobs that are already in the CSV, that the bot applied to, or that it found closed.
+- Documents are not made for jobs that are already in the list, that the bot applied to, or that it found closed.
 
 ---
 
@@ -82,7 +91,7 @@ python apply_jobs.py --login                        # log in to LinkedIn by hand
 ```
 
 Defaults for count and age come from `config\apply_settings.py`; the score cutoff is `MIN_SCORE`. Jobs with a status in
-`applications.csv` are never offered (naming one with `--url` still works).
+`applications.xlsx` are never offered (naming one with `--url` still works).
 
 **Several at once.** The terminal where you ran the command only shows a short summary. Up to `PARALLEL_JOBS`
 applications open at once, each in its own terminal window and its own browser window, using a temporary copy of your
@@ -127,7 +136,7 @@ Whatever it finds is saved once per job. Jobs with no link are marked "none" and
   LinkedIn's public page, or the page text) and records closed ones as `closed` so they aren't offered or given
   documents again. An unclear result counts as open. Scripts, styles and comments in a page are ignored when looking
   for "no longer accepting applications" text.
-- **Already handled:** a job with an application row (applied, skipped, closed) or a `status` in the CSV is skipped.
+- **Already handled:** a job with an application row (applied, skipped, closed) or a `status` in the applications list is skipped.
 
 ### Answering questions
 

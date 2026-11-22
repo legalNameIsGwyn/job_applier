@@ -18,6 +18,7 @@ from config.settings import (
     CHECK_AVAILABILITY, LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS, LINKEDIN_RESULTS_WANTED, USER_AGENT,
 )  # all tunable in config/settings.py
 from core.console import tag
+from core.stop import stop_requested, wait as stop_wait
 from core.job_status import closed_in_text
 
 try:  # both are normally installed alongside jobspy
@@ -231,6 +232,8 @@ def fill_missing_descriptions(
     limited_in_a_row = 0   # jobs in a row that ended on a 429
 
     for n, idx in enumerate(missing, start=1):
+        if stop_requested():
+            break
         job_id = _linkedin_job_id(str(df.at[idx, "job_url"]))
         if not job_id:
             continue
@@ -248,7 +251,8 @@ def fill_missing_descriptions(
                 limited = True
                 if attempt < tries:
                     tag("SCRAPER", f"Rate limited (429), waiting {RATE_LIMIT_BACKOFF_SECONDS * attempt}s... (try {attempt}/{tries})", "warn")
-                    time.sleep(RATE_LIMIT_BACKOFF_SECONDS * attempt)
+                    if stop_wait(RATE_LIMIT_BACKOFF_SECONDS * attempt):
+                        break
                 continue
             except requests.RequestException as e:
                 tag("SCRAPER", f"Could not fetch the page (try {attempt}/{tries}): {e}", "warn")
@@ -259,13 +263,15 @@ def fill_missing_descriptions(
             text = _parse_linkedin_description(page) if page else ""
             if text:
                 break
-            if attempt < tries:
-                time.sleep(random.uniform(min_delay, max_delay))
+            if attempt < tries and stop_wait(random.uniform(min_delay, max_delay)):
+                break
+        if stop_requested() and not text and not closed:
+            break   # stopped mid-job: nothing is saved for it and it is retried next run
         if closed:   # no more tries, and nothing to retry next run
             df.at[idx, "closed"] = True
             limited_in_a_row = 0
             tag("SCRAPER", "The posting is closed.", "warn")
-            time.sleep(random.uniform(min_delay, max_delay))
+            stop_wait(random.uniform(min_delay, max_delay))
             continue
         link = _parse_linkedin_apply_link(page) if page else None  # usually absent: LinkedIn hides it
         count = _parse_linkedin_applicants(page) if page else None
@@ -297,7 +303,10 @@ def fill_missing_descriptions(
                 df["job_url_direct"] = df["job_url_direct"].astype(object)
             if _is_blank(df.at[idx, "job_url_direct"]):
                 df.at[idx, "job_url_direct"] = link
-        time.sleep(random.uniform(min_delay, max_delay))
+        stop_wait(random.uniform(min_delay, max_delay))
+
+    if stop_requested():
+        tag("SCRAPER", "Stopped by you. The jobs not fetched yet are retried next run.", "warn")
 
     closed_now = int(df.loc[missing, "closed"].sum())
     tag("SCRAPER", f"Got descriptions for {filled}/{len(missing)} jobs"

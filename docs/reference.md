@@ -10,7 +10,7 @@ job_scraper\
   README.md  CMDLIST.md  requirements.txt  .gitignore
   docs\        how-it-works, applying, settings, reference
   config\       every editable setting, and the profile loader
-  profiles\     one folder per profile (profile.py, resume.json, applications\, applications.csv); _generic is the template
+  profiles\     one folder per profile (profile.py, resume.json, applications\, applications.xlsx); _generic is the template
   db\           models, session, repo, queries, ratings, calibrations, tracking, migrate
   core\         scraper, filters, scorer, calibration, compat, dedupe, job_info, job_status, availability, csv_log
   documents\    application_maker
@@ -60,14 +60,14 @@ from the old single-table layout into this one without changing the old file.
 - Several parents for a profile (`EXTENDS = ["a", "b"]`); the `--profile` lookup still reads `sys.argv` instead of a
   settings lookup
 - `tools.profile check` doesn't validate the compatibility, bridge and boilerplate prompts; the generic profile template
-  doesn't list `COMPAT_DETAIL`, `HARD_REQ_CAP`, `TAILOR_MODE`, `MAX_BRIDGE_LINES` or the CSV settings
+  doesn't list `COMPAT_DETAIL`, `HARD_REQ_CAP`, `TAILOR_MODE`, `MAX_BRIDGE_LINES` or the applications list settings (`CSV_LOG`, `LOG_FORMAT`)
 - Showing only the detailed compatibility percentage (the rough one is still shown beside it); a command that fills
   compatibility for old jobs without re-scoring them; an ignore list for vague requirements such as "gain hands-on
   technical expertise"
 - A cover-letter warning for "-ing" significance phrases
 - Filling LinkedIn Easy Apply and Indeed's own forms; finding the employer link for Indeed jobs
 - Showing the applicant count in `tools.show_jobs` and `tools.summary` (it isn't stored in the database)
-- Tracking by email (outcomes are entered by hand with `tools.track`, or in the CSV)
+- Tracking by email (outcomes are entered by hand with `tools.track`, or in the applications list)
 - PDF export (documents are `.docx`)
 - Scheduled runs (Windows Task Scheduler can run `python main.py` for you)
 - Automated tests (the fillers were checked on mock pages only)

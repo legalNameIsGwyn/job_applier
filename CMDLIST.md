@@ -77,7 +77,7 @@ whether it is still open (`[AVAILABILITY] Checking n/N`, with the link). Jobs it
 | `python -m tools.check --blockers --show-all` | List every job, not just the first 15 per group |
 | `python -m tools.check --blockers -y` | Don't ask for confirmation |
 | `python -m tools.check --availability` | Asks each saved job that has documents whether it is still open and marks the closed ones. No model; ignores `AVAILABILITY_RECHECK_DAYS`; with `AVAILABILITY_ASK` on, it then opens the unanswered ones one by one |
-| `python -m tools.check --mark URL [URL ...]` | You checked the posting yourself: mark it closed (database and CSV). A job you applied to is never changed |
+| `python -m tools.check --mark URL [URL ...]` | You checked the posting yourself: mark it closed (database and applications list). A job you applied to is never changed |
 | `python -m tools.check --mark URL --as open` | Undo a closed mark |
 
 ## Rating and calibration: `tools.rating`
@@ -143,7 +143,7 @@ Output goes to `profiles\<name>\applications\<company>_<title>_<hash>\` (resume,
 | Command | Meaning |
 |---|---|
 | `python -m core.dedupe` | Mark duplicate postings already in the database (`--dry-run` to look first) |
-| `python -m tools.csv_sync` | Fill blank `status` cells in `applications.csv` for jobs the bot applied to or found closed (`--dry-run` first) |
+| `python -m tools.csv_sync` | Fill blank `status` cells in `applications.xlsx` for jobs the bot applied to or found closed (`--dry-run` first) |
 | `python -m tools.clear db` | Empty the jobs database (backup copy first) |
 | `python -m tools.clear docs` | Move application folders into an archive folder |
 | `python -m tools.clear all` | Both |

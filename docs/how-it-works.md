@@ -26,10 +26,10 @@ reason, so they're never re-fetched. All the rules come from the active profile.
   applications" wording; a closed job is saved with status `closed`, score 0 and no description. `CHECK_AVAILABILITY_OTHER_SITES` also asks Greenhouse,
   Lever, Ashby, Workday and other sites (one extra request per job; many sites just answer "unknown", which counts as open).
   If no description can be fetched (the site is not LinkedIn and sent none, or LinkedIn kept answering 429), the log says why, and the job is retried next run.
-- **Saved jobs are re-checked too** (`core\availability.py`): after scoring, each run asks whether jobs that already have documents (rows in the CSV
+- **Saved jobs are re-checked too** (`core\availability.py`): after scoring, each run asks whether jobs that already have documents (rows in the applications list
   with a blank `status`) are still open. Skipped: jobs from this run's scrape, jobs you applied to, skipped or tracked, and jobs checked within
-  `AVAILABILITY_RECHECK_DAYS` days. A closed one gets an `applications` row with status `closed` (score and documents stay) and `closed` in the CSV `status`.
-  Every answer stamps `last_checked` (database and CSV). A job a site won't answer for is tried again next run, and with `AVAILABILITY_ASK = True` you are
+  `AVAILABILITY_RECHECK_DAYS` days. A closed one gets an `applications` row with status `closed` (score and documents stay) and `closed` in the applications list `status`.
+  Every answer stamps `last_checked` (database and applications list). A job a site won't answer for is tried again next run, and with `AVAILABILITY_ASK = True` you are
   asked about it after the summary: each link opens in your browser and you answer open / closed / skip. `python -m tools.check --availability` does the
   same on demand, and `python -m tools.check --mark URL` marks a job closed by hand.
 - **Drops after the detailed check:** a required item whose kind is in `DROP_ON_MISSING_KINDS` (default: clearance) that your
