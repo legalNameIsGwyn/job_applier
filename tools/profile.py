@@ -119,6 +119,51 @@ def as_list(text: str) -> list[str]:
     return [p.strip() for p in re.split(r"[,;\n]", text) if p.strip()]
 
 
+# Optional private answers for voluntary self-identification questions (resume.json "self_identification").
+# The wordings are suggestions only: a typed value works too, and forms match loosely ("Asian" matches "Asian (Not Hispanic or Latino)").
+SELF_ID_FIELDS = [
+    ("gender", "Gender", ["Male", "Female", "Non-binary"]),
+    ("race_ethnicity", "Race / ethnicity", ["Asian", "Black or African American", "Hispanic or Latino", "White",
+                                            "American Indian or Alaska Native",
+                                            "Native Hawaiian or Other Pacific Islander", "Two or More Races"]),
+    ("veteran_status", "Veteran status", ["I am not a protected veteran",
+                                          "I identify as one or more of the classifications of protected veteran"]),
+    ("disability_status", "Disability status", ["No, I do not have a disability",
+                                                "Yes, I have a disability, or have had one in the past"]),
+    ("nationality", "Nationality", []),
+    ("sexual_orientation", "Sexual orientation", ["Heterosexual", "Gay or Lesbian", "Bisexual"]),
+    ("transgender", "Transgender", ["No", "Yes"]),
+]
+
+
+def ask_self_identification() -> dict:
+    """Ask for each field: a number picks a suggested wording, text is used as typed, Enter leaves it empty."""
+    answers = {}
+    for key, label, options in SELF_ID_FIELDS:
+        print(f"\n  {paint(label, 'cyan', True)}")
+        for i, option in enumerate(options, start=1):
+            print(f"    {paint(i, 'cyan', True)}) {option}")
+        reply = ask(f"{label} (number" + (", " if options else "") + "or text, Enter to skip)").strip()
+        if reply.isdigit() and 1 <= int(reply) <= len(options):
+            reply = options[int(reply) - 1]
+        if reply:
+            answers[key] = reply
+    return answers
+
+
+def write_self_identification(resume_file: Path, answers: dict) -> None:
+    """Fill the empty "key": "" lines of the self_identification block, keeping the template's layout."""
+    text = resume_file.read_text(encoding="utf-8")
+    start = text.find('"self_identification"')
+    if start < 0 or not answers:
+        return
+    block_end = text.find("}", start)
+    block = text[start:block_end]
+    for key, value in answers.items():
+        block = re.sub(rf'("{key}"\s*:\s*)""', lambda m: m.group(1) + json.dumps(value, ensure_ascii=False), block, count=1)
+    resume_file.write_text(text[:start] + block + text[block_end:], encoding="utf-8")
+
+
 def short(value, width: int = 52) -> str:
     text = " ".join(str(value).split()) if not isinstance(value, str) else " ".join(value.split())
     if isinstance(value, str) and len(value) > 60:
@@ -285,7 +330,7 @@ def cmd_new(name: str) -> None:
         fail(f"Profile '{name}' already exists ({PL.profile_file(name)}). Edit that file, or pick another name.")
     existing = PL.list_profiles()
     keep_resume = (folder / "resume.json").is_file()
-    total = 10
+    total = 11
 
     banner(f"New profile: {name}", "a few questions, then it writes profiles\\" + name + "\\")
     note("Press Ctrl-C at any point to cancel; nothing is written until the end.")
@@ -394,6 +439,19 @@ def cmd_new(name: str) -> None:
         if resume_from is not None and not resume_from.is_file():
             fail(f"Can't find {resume_from} to copy.")
 
+    # 11 --------------------------------------------------------------------------------------
+    self_id: dict = {}
+    if resume_from is not None and resume_from.parent.name == GENERIC:
+        step(11, total, "Form self-identification answers (optional, private)")
+        note("Used only to answer voluntary questions on application forms (gender, race, veteran, disability...).")
+        note("They are never put in a resume or cover letter. Press Enter to skip any field; a skipped field")
+        note("makes the form's 'decline to answer' option get picked. You can edit them later in resume.json.")
+        if confirm("Fill them in now?", default=False):
+            self_id = ask_self_identification()
+    else:
+        step(11, total, "Form self-identification answers")
+        note("Skipped: this profile keeps an existing resume. Edit \"self_identification\" in its resume.json to set them.")
+
     # what to write: only differences from the base -------------------------------------------
     values: dict = {}
     if mode == "copy":
@@ -426,7 +484,8 @@ def cmd_new(name: str) -> None:
             ("Minimum score", f"{min_score:g}"), ("Keyword weight", f"{keyword_pct}%"),
             ("Common terms", ", ".join(common) or "(unchanged)"),
             ("Prompts", "generated for this field" if regenerate else "unchanged"),
-            ("Resume", "kept" if keep_resume else f"copied from {resume_from}" if resume_from else "NOT SET YET")]
+            ("Resume", "kept" if keep_resume else f"copied from {resume_from}" if resume_from else "NOT SET YET"),
+            ("Self-ID answers", f"{len(self_id)} of {len(SELF_ID_FIELDS)} filled in" if self_id else "left empty (decline)")]
     for label, value in rows:
         print(f"  {paint(label.ljust(16), 'cyan')} {value}")
     print()
@@ -439,6 +498,7 @@ def cmd_new(name: str) -> None:
         render_profile(name, f"{field}, {level}", source if mode == "extend" else None, values), encoding="utf-8")
     if resume_from is not None:
         shutil.copyfile(resume_from, folder / "resume.json")
+        write_self_identification(folder / "resume.json", self_id)
 
     print()
     print(good(f"Created profiles\\{name}\\  (profile.py" + (", resume.json" if (folder / "resume.json").is_file() else "")
