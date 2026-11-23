@@ -11,13 +11,20 @@
   },
   "work_authorization": "",
   "availability": "",
+  "self_identification": {
+    "_readme": "OPTIONAL and private. Used only to answer voluntary self-identification questions on forms; never put in a resume or cover letter. Leave a value empty to pick the form's 'decline to answer' option. Write it close to the form's wording, e.g. 'Asian', 'I am not a protected veteran'.",
+    "gender": "",
+    "race_ethnicity": "",
+    "veteran_status": "",
+    "disability_status": "",
+    "nationality": "",
+    "sexual_orientation": "",
+    "transgender": ""
+  },
   "summary": "Two or three plain sentences about you and the kind of work you want.",
   "skills": ["First skill", "Second skill"],
   "certifications": [
     {"name": "Certification name", "date": "Month Year", "credential_id": ""}
-  ],
-  "licenses": [
-    {"name": "License name", "state": "", "expires": ""}
   ],
   "education": [
     {"degree": "Degree, Major", "school": "School name", "years": "Start - End"}

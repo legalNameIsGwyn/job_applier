@@ -105,7 +105,8 @@ Enter (not yet). Because the copies are deleted afterwards, an account you creat
 | Kind | How |
 |---|---|
 | Greenhouse, Lever, Ashby | Fills the form on the page |
-| Workday | Walks the wizard: "Autofill with Resume", each page, Save and Continue where nothing needs you, stops at Review. Needs an account per employer: the first time, the tool pauses so you sign in or create it |
+| Workday | Walks the wizard: "Autofill with Resume", each page, Save and Continue where nothing needs you, stops at Review. Needs an account per employer: the first time, the tool pauses so you sign in or create it.
+- **Apply button:** waits for Workday's Apply control, accepts links, buttons or other tags acting as buttons (ignoring cookie/privacy/"Apply Manually" items), falls back to the posting's `/apply` address, and finally pauses so you can click it yourself. |
 | Generic (`generic.py`) | iCIMS, Taleo, SuccessFactors, SmartRecruiters, Workable, BambooHR, Jobvite, Breezy, Recruitee, Oracle, UKG, Paylocity, ADP, JazzHR, Rippling, Teamtailor, and **any other employer career page**. Best effort: presses Apply if the form isn't on the page, pauses when the site asks you to sign in, clicks only Next / Continue (`GENERIC_AUTO_ADVANCE`, at most `GENERIC_MAX_STEPS` pages), and stops when only Submit / Finish / Review is left |
 | Job boards (ZipRecruiter, Glassdoor...) | Skipped: not application pages. Use `--set-url` with the employer's link |
 | LinkedIn Easy Apply, Indeed's own forms | Not supported |
@@ -142,8 +143,11 @@ Whatever it finds is saved once per job. Jobs with no link are marked "none" and
 
 Rules in `config\answers.py` (filled from `resume.json`), then answers you typed before (`data\learned_answers.json`,
 shared by all profiles), then long "why us?" questions drafted by the local model (read them; they're flagged), then
-it asks you in the terminal and remembers the answer. Gender, race, veteran and disability questions are answered
-"decline" by default. Legal attestations, signatures and consent checkboxes are **never** filled for you. A required
+it asks you in the terminal and remembers the answer. Gender, race, veteran, disability, nationality, sexual orientation
+and transgender questions are answered from the `self_identification` block of `resume.json`, or "decline" if it's
+empty. Start-date and notice-period questions are answered "Immediately" / "None" (edit the lists in
+`config\answers.py`); date pickers are left for you. LinkedIn questions use `contact.linkedin`. Legal attestations,
+signatures and consent checkboxes are **never** filled for you. A required
 field that no rule can fill is listed under "NEEDS YOUR ATTENTION".
 
 ### Diagnostics

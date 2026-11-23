@@ -26,7 +26,9 @@ for example `python -m tools.show_jobs`. Only `main.py` and `apply_jobs.py` run 
 ### `resume.json`
 
 ```
-name, contact {email, phone, location, github, gitlab}, work_authorization, availability, summary,
+name, contact {email, phone, location, linkedin, github, gitlab}, work_authorization, availability,
+self_identification {gender, race_ethnicity, veteran_status, disability_status, nationality, sexual_orientation, transgender},
+summary,
 skills [...], certifications [{name, date, credential_id | url}], education [{degree, school, years}],
 experience [{role, company, years, bullets [...], description}],
 projects [{name, url, bullets [...], description, skills [...]}],
@@ -40,6 +42,9 @@ phrases; bridge lines may use them, and anything written there is treated as a t
 like `Norfolk, VA` (city, then state): a form's state field is filled from the second part. Only list things that are
 true; documents and form answers are built only from this file.
 
+`contact.linkedin` and `self_identification` are optional. `self_identification` is private: it only answers
+voluntary self-identification questions on forms and is never put in a resume or cover letter. Write each value close
+to the form's wording (for example "Asian" or "I am not a protected veteran"); empty means "decline to answer".
 ### Database (`data\jobs_db.sqlite`, SQLAlchemy over SQLite)
 
 | Table | Holds |

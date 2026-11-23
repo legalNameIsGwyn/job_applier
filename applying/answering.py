@@ -34,7 +34,7 @@ STATES = {
 
 CHOICE_KINDS = {"select", "radio", "combobox"}
 DECLINE_RE = re.compile(
-    r"decline|prefer not|do not wish|don.?t wish|not to (say|answer|disclose|identify|specify)|choose not|rather not",
+    r"decline|prefer not|do not wish|don.?t wish|not to (say|answer|disclose|identify|specify)|choose not|rather not|(do not|don.?t) want to (answer|say|disclose|identify)",
     re.IGNORECASE,
 )
 
@@ -76,6 +76,7 @@ def label_key(label: str) -> str:
 def resume_values(resume: dict) -> dict:
     """Placeholders available to the answers in config/answers.py."""
     contact = resume.get("contact", {})
+    sid = resume.get("self_identification") or {}
     words = resume.get("name", "").split()
     digits = re.sub(r"\D", "", contact.get("phone", ""))
     if len(digits) == 11 and digits.startswith("1"):
@@ -100,10 +101,18 @@ def resume_values(resume: dict) -> dict:
         "location": location,
         "city": city,
         "state": state,
+        "linkedin_url": url(contact.get("linkedin", ""), "https://www.linkedin.com/in/"),
         "github_url": url(contact.get("github", ""), "https://github.com/"),
         "gitlab_url": url(contact.get("gitlab", ""), "https://gitlab.com/"),
         "availability": resume.get("availability", ""),
         "work_authorization": resume.get("work_authorization", ""),
+        "gender": sid.get("gender", ""),
+        "race_ethnicity": sid.get("race_ethnicity", ""),
+        "veteran_status": sid.get("veteran_status", ""),
+        "disability_status": sid.get("disability_status", ""),
+        "nationality": sid.get("nationality", ""),
+        "sexual_orientation": sid.get("sexual_orientation", ""),
+        "transgender": sid.get("transgender", ""),
     }
 
 
@@ -176,6 +185,8 @@ class Answerer:
             return "", "blank"
         candidates = answer if isinstance(answer, list) else [answer]
         for candidate in candidates:
+            if candidate == "@DECLINE":   # allowed as the last candidate: "my value, else decline"
+                return self._from_rule("@DECLINE", kind, options)
             try:
                 text = candidate.format(**self.values)
             except (KeyError, IndexError, ValueError) as e:
@@ -184,6 +195,8 @@ class Answerer:
                     f"Allowed placeholders: {', '.join('{' + k + '}' for k in self.values)}."
                 ) from None
             if text == "":
+                if len(candidates) > 1:
+                    continue   # an unset placeholder in a list of candidates: try the next one
                 return "", "blank"
             fitted = self._fit(text, kind, options)
             if fitted is not None:

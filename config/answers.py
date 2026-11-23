@@ -6,7 +6,9 @@ against the question's label. The FIRST rule that matches wins, so specific rule
 An answer can be:
   "text"            used as is. These placeholders are filled from resume.json:
                     {first} {last} {full} {legal_name} {email} {phone} {phone_national}
-                    {city} {state} {location} {github_url} {gitlab_url} {availability} {work_authorization}
+                    {city} {state} {location} {linkedin_url} {github_url} {gitlab_url} {availability} {work_authorization}
+                    {gender} {race_ethnicity} {veteran_status} {disability_status} {nationality}
+                    {sexual_orientation} {transgender}
   ["a", "b"]        for dropdowns and radio buttons: the first of these that matches an option
   "@DECLINE"        pick the "decline to answer / prefer not to say" option
   ""                leave the field blank (no question asked)
@@ -27,7 +29,7 @@ ANSWER_RULES = [
     (r"phone device type|device type", ["Mobile", "Cell"]),
     (r"country phone code|phone code", ["United States of America (+1)", "United States (+1)", "+1"]),
     (r"phone|mobile|\bcell\b", "{phone_national}"),
-    (r"linkedin", ""),                      # not in resume.json; add a "linkedin" key to contact there
+    (r"linkedin", "{linkedin_url}"),        # blank until you add a "linkedin" key to contact in resume.json
     (r"github", "{github_url}"),
     (r"gitlab", "{gitlab_url}"),
     (r"website|portfolio|personal site", "{github_url}"),
@@ -45,14 +47,24 @@ ANSWER_RULES = [
     (r"work authorization|citizenship status", "{work_authorization}"),
 
     # ---- availability
-    (r"start date|earliest.*start|when can you start|availab", "{availability}"),
-    (r"notice period", "{availability}"),
+    (r"start date|earliest.*start|when can you start|availab",
+     ["Immediately", "Immediate", "ASAP", "As soon as possible", "{availability}"]),
+    (r"notice period", ["None", "No notice", "Immediately", "0", "{availability}"]),
 
     # ---- how you found the job
     (r"how did you (hear|find)|where did you (hear|find)|referral source|source of (hire|application)", ["LinkedIn", "Job board", "Indeed", "Online", "Other"]),
 
-    # ---- voluntary self-identification (EEO). Left as "decline" unless you change it.
-    (r"gender|\bsex\b|pronoun|\brace\b|ethnic|hispanic|latino|veteran|disabilit|sexual orientation|transgender", "@DECLINE"),
+    # ---- voluntary self-identification (EEO). Filled from the "self_identification" block of resume.json.
+    # An empty value, or one that matches none of the form's options, falls back to the "decline" option.
+    # Order matters: "transgender" must come before "gender".
+    (r"transgender", ["{transgender}", "@DECLINE"]),
+    (r"sexual orientation", ["{sexual_orientation}", "@DECLINE"]),
+    (r"gender|\bsex\b", ["{gender}", "@DECLINE"]),
+    (r"\brace\b|ethnic|hispanic|latino", ["{race_ethnicity}", "@DECLINE"]),
+    (r"veteran", ["{veteran_status}", "@DECLINE"]),
+    (r"disabilit", ["{disability_status}", "@DECLINE"]),
+    (r"nationality", ["{nationality}", "@DECLINE"]),
+    (r"pronoun", "@DECLINE"),
 ]
 
 # Legal attestations are never filled for you: they are skipped and listed for you to handle.
