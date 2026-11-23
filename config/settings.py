@@ -15,6 +15,7 @@ ACTIVE_PROFILE = DEFAULT_PROFILE
 
 # A CSV of jobs to click through and apply to by hand, next to each profile's applications folder.
 CSV_LOG = True
+CSV_FORMAT = "xlsx" # "csv"
 
 # --------------------------------------------------------------------- files and folders
 RESUME_FILE = PROJECT_DIR / "data" / "resume.json"                 # your resume data (stays outside config/)
@@ -31,10 +32,10 @@ SEARCH_TERMS = [
     "associate software engineer",
 ]
 LOCATION = "Norfolk, VA"
-RESULTS_WANTED = 50   # per site, per search term
+RESULTS_WANTED = 5   # per site, per search term
 HOURS_OLD = 72    
 
-LINKEDIN_RESULTS_WANTED = 50   # LinkedIn blocks big pulls
+LINKEDIN_RESULTS_WANTED = 5   # LinkedIn blocks big pulls
 LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS = False  # False = JobSpy won't open every job page
 # main.py's slower fetcher fills descriptions in instead
 
@@ -62,12 +63,25 @@ COUNTRY_INDEED = "USA"
 DELAY_BETWEEN_SEARCH_TERMS = 5.0          # seconds
 DESCRIPTION_FETCH_DELAY = (1.5, 3.5)      # random pause (min, max seconds) between LinkedIn pages
 DESCRIPTION_FETCH_TIMEOUT = 20            # seconds per LinkedIn page
+DESCRIPTION_FETCH_ATTEMPTS = 3            # tries per job before it is left for the next run (a 429 or a page with no text counts as a try)
+
+CHECK_AVAILABILITY = True                 # drop postings that are already closed (LinkedIn is read from the page the description fetch downloads anyway: no extra request)
+CHECK_AVAILABILITY_OTHER_SITES = False    # also ask Indeed and other sites whether a posting is open: one extra request per job, and many sites just answer "unknown"
+
+AVAILABILITY_ASK = True                   # after the summary, ask you about saved jobs the sites would not answer for (only when you are at the keyboard)
+AVAILABILITY_RECHECK = True               # main.py also re-checks saved jobs that have documents and marks the closed ones (one request each)
+AVAILABILITY_RECHECK_DAYS = 1             # skip a job checked within this many days (0 = check every job every run; python -m tools.check --availability ignores this)
+
 RATE_LIMIT_BACKOFF_SECONDS = 30           # first wait after a 429; doubles/triples on repeats
-RATE_LIMIT_STOP_AFTER = 3                 # give up fetching descriptions after this many 429s in a row
+RATE_LIMIT_STOP_AFTER_JOBS = None         # stop fetching for the whole run after this many jobs in a row end on a 429 (None = never; each job just gives up on its own)
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
+
+# ------------------------------------------------------------------------ stopping a run
+# Ctrl-C while the descriptions are downloading stops the download.
+STOP_FETCH_THEN_SCORE = True   # True = score the descriptions already downloaded; False = go straight to the summary
 
 # ----------------------------------------------------------------------------- documents
 MAKE_DOCS = True          # create a resume + cover letter automatically after scoring
@@ -78,6 +92,7 @@ TAILOR_MAX_SKILLS = 12    # skills the model may move to the front (all skills a
 FONT = "Calibri"
 COVER_LETTER_GREETING = "Good day,"
 COVER_LETTER_SIGN_OFF = "Sincerely,"
+REVIEW_BRIDGES = True   # scheduled or piped runs never ask.
 
 # ------------------------------------------------------------------------------ file names
 # Names are built from your resume.json and the job. ".docx" is added for you.
@@ -117,7 +132,8 @@ RATING_CARD_MAX_WIDTH = 100    # cap used when RATING_CARD_WIDTH is None
 
 COMPAT_DETAIL = True      # the extra model call for jobs at or above MIN_SCORE
 HARD_REQ_CAP = 60         # detailed % is capped here when a hard requirement is missing
-HARD_REQ_KINDS = ("clearance", "work_authorization", "license_or_certification")
+HARD_REQ_KINDS = ("clearance", "work_authorization")   # a missing required item of these caps the detailed %; licenses and certifications are only flagged
+DROP_ON_MISSING_KINDS = ("clearance",)   # a required item of these kinds you lack DROPS the job after the detailed check. Add "work_authorization" to drop those too; licenses and certifications are only flagged
 
 MAX_BRIDGE_LINES = 2      # bridge lines proposed per job
 
@@ -128,9 +144,42 @@ TAILOR_AUTO_BRIDGE_BELOW = 70       # compatibility under this uses bridge
 TAILOR_AUTO_BOILERPLATE_BELOW = 30  # compatibility under this uses boilerplate
 
 # Console look: None = automatic (colors only in a terminal, symbols only if it can show them)
-CONSOLE_COLOR = None     # True = always color, False = never
-CONSOLE_UNICODE = None   # False = plain ASCII symbols (+ x = !) if you see odd characters
-CONSOLE_DETAIL_COLOR = 134   # a name from --colors, or any number 0-255, e.g. 141
+# Console look
+CONSOLE_COLOR = None   # None = automatic (colors only in a terminal), True = always color, False = never
+CONSOLE_LINKS = None   # None = automatic, True = clickable "open posting" links, False = always show the full URL
+
+# Colors. Each value is a name from `python -m core.console --colors`, a number 0-255, or "#rrggbb".
+# "auto" (suitability, compat) = green / yellow / gray depending on how high the number is.
+# See your changes without running the pipeline:   python -m core.console
+
+CONSOLE_COLORS = {
+    "heading": "white",       # JOB SCRAPER, stage titles, section titles
+    "label": "gray",          # profile, mode, suitability, compat ...
+    "value": "white",         # the values next to those labels
+    "rule": "blue",           # the line after a stage title
+    "job_title": "white",     # job block: the title
+    "company": "sky",         # job block: company
+    "location": "teal",       # job block: where
+    "suitability": "auto",    # job block: the 0-10 score
+    "compat": "auto",         # job block: compatibility percentage
+    "site": "pink",           # job block: where it was posted
+    "docs": "lavender",       # job block: the documents mode
+    "salary": "lime",         # job block: pay
+    "blocker": "red",         # job block: hard requirements you don't meet
+    "license": "yellow",      # job block: a required license or certification you don't list
+    "about": "blue",          # job block: short description
+    "requires": "gold",       # job block: requirements
+    "has": "green",           # job block: your matching skills
+    "gaps": "orange",         # job block: what you're missing
+    "notes": "magenta",       # job block: contract, work setup ...
+    "link": "gray",           # job block: link to the posting
+}
+
+CONSOLE_TAG_COLORS = {        # the [TAG] at the start of a line
+    "SCRAPER": "cyan", "FILTER": "yellow", "SCORER": "blue", "PIPELINE": "blue", "DEDUPE": "gray",
+    "COMPAT": "sky", "DOCS": "magenta", "APPLY": "green", "BRIDGE": "orange", "CSV": "gold",
+    "SUMMARY": "white", "TRACK": "pink",
+}
 
 from config.profile_loader import apply_overrides  # noqa: E402
 apply_overrides(globals())

@@ -123,7 +123,9 @@ def summary_points(description: str, per_section: int = 3, width: int = 140) -> 
 
 def _clip(text: str, width: int) -> str:
     text = " ".join(text.split())
-    return text if len(text) <= width else text[: width - 3].rstrip() + "..."
+    if len(text) <= width:
+        return text
+    return text[: width - 1].rsplit(" ", 1)[0].rstrip(" ,;:-–(") + "…"      # cut at a word, never mid-word
 
 # ------------------------------------------------------------------ card helpers (rating.py)
 

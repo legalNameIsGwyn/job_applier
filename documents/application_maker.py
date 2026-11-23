@@ -280,7 +280,8 @@ def bridgeable_gaps(job: dict) -> list[str]:
     """Requirements worth bridging: the detailed check's missing list without hard blockers, else the model's gaps."""
     missing = job.get("compat_missing")
     if missing:
-        return [m["text"] for m in missing if isinstance(m, dict) and m.get("text") and not m.get("hard")]
+        return [m["text"] for m in missing if isinstance(m, dict) and m.get("text") and not m.get("hard")
+                and m.get("kind") != "license_or_certification"]
     return [g for g in (job.get("gaps") or []) if isinstance(g, str) and g.strip()][:6]
 
 
@@ -716,10 +717,11 @@ def job_folder(job: dict, out_root: Path = OUTPUT_DIR) -> Path:
 
 
 def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = False,
-                       mode: str | None = None, review: bool = False) -> Path | None:
+                       mode: str | None = None, review: bool = False, ask=input) -> Path | None:
     """Create the resume, cover letter (.docx) and notes.txt for one job.
 
         mode: standard | bridge | boilerplate | auto; None uses TAILOR_MODE. review: check each bridge line yourself first.
+        ask: how the review questions are asked (main.py passes one where Ctrl-C abandons the job).
 
     Returns the folder, or None if it already existed (and force is False).
     """
@@ -743,7 +745,7 @@ def create_application(job: dict, out_root: Path = OUTPUT_DIR, force: bool = Fal
         except Exception as e:
             decision("warn", f"bridge: could not propose bridge lines ({e}); writing the standard letter")
         if review and bridges:
-            bridges = review_bridges(bridges)
+            bridges = review_bridges(bridges, ask=ask)
     say("mode", f"{mode} ({why})", MODE_COLORS.get(mode))
     for b in bridges:
         bridge_line(b)

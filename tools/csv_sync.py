@@ -8,7 +8,7 @@ Run:  python -m tools.csv_sync --profile NAME            (add --dry-run to only 
 
 import argparse
 
-from core.csv_log import csv_path, sync_statuses
+from core.csv_log import csv_path, log_exists, sync_statuses
 from db.queries import application_statuses
 from db.session import add_profile_arguments, apply_profile_arguments
 from core.console import tag
@@ -24,7 +24,7 @@ def main() -> None:
     apply_profile_arguments(args)
 
     path = csv_path()
-    if not path.exists():
+    if not log_exists():
         raise SystemExit(f"No CSV yet at {path}. Run main.py first.")
 
     labels = {url: LABELS[status] for url, status in application_statuses().items() if status in LABELS}

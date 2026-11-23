@@ -36,7 +36,7 @@ THIRD_PARTY = {"jobspy": "python-jobspy", "ollama": "ollama", "pandas": "pandas"
                "docx": "python-docx", "requests": "requests", "bs4": "beautifulsoup4", "playwright": "playwright"}
 CONFIG_FILES = ["settings", "apply_settings", "answers", "filter_rules", "keywords", "job_notes", "prompts",
                 "writing_style"]
-PRIVATE = ["data/", "applications/", "applications.csv", "browser_profile", "learned_answers.json", "jobs.csv", ".sqlite", "reports/"]
+PRIVATE = ["data/", "applications/", "applications.csv", "browser_profile", "learned_answers.json", "jobs.csv", ".sqlite", "reports/", "applications.xlsx"]
 EXPECTED_TABLES = {"jobs", "ratings", "applications"}
 
 counts = {"ok": 0, "warn": 0, "fail": 0}
@@ -450,7 +450,7 @@ def check_git() -> None:
         say("ok", "No private files are tracked by git")
     ignore = (ROOT / ".gitignore").read_text(encoding="utf-8", errors="ignore") if (ROOT / ".gitignore").exists() else ""
     absent = [p for p in ("data/", "browser_profile", "profiles/*/resume.json", "profiles/*/applications/",
-                          "profiles/*/applications.csv", "*.sqlite", "__pycache__") if p not in ignore]
+                          "profiles/*/applications.csv", "profiles/*/applications.xlsx",  "*.sqlite", "__pycache__") if p not in ignore]
     say("warn" if absent else "ok", ".gitignore " + ("is missing: " + ", ".join(absent) if absent else "covers the private files"))
 
 

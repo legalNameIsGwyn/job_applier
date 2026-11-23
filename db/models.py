@@ -44,6 +44,7 @@ class Job(Base):
     is_duplicate: Mapped[bool] = mapped_column(Boolean, default=False)
     duplicate_of_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
     found_by_profile_id: Mapped[int | None] = mapped_column(ForeignKey("profiles.id", ondelete="SET NULL"))
+    last_checked: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class JobScore(Base):
@@ -154,4 +155,4 @@ class TrackingEvent(Base):
     tracking_id: Mapped[int] = mapped_column(ForeignKey("tracking.id", ondelete="CASCADE"), index=True)
     stage: Mapped[str] = mapped_column(String)
     on_date: Mapped[str] = mapped_column(String)
-    note: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)

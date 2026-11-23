@@ -13,10 +13,13 @@ from jobspy import scrape_jobs
 
 from config.settings import (
     AVAILABLE_SITES, COUNTRY_INDEED, DEFAULT_HOURS_OLD, DEFAULT_RESULTS_WANTED, DELAY_BETWEEN_SEARCH_TERMS,
-    DESCRIPTION_FETCH_DELAY, DESCRIPTION_FETCH_TIMEOUT, RATE_LIMIT_BACKOFF_SECONDS, RATE_LIMIT_STOP_AFTER,
-    LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS, LINKEDIN_RESULTS_WANTED, USER_AGENT,
+    DESCRIPTION_FETCH_ATTEMPTS, DESCRIPTION_FETCH_DELAY, DESCRIPTION_FETCH_TIMEOUT, RATE_LIMIT_BACKOFF_SECONDS,
+    RATE_LIMIT_STOP_AFTER_JOBS,
+    CHECK_AVAILABILITY, LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS, LINKEDIN_RESULTS_WANTED, USER_AGENT,
 )  # all tunable in config/settings.py
 from core.console import tag
+from core.stop import stop_requested, wait as stop_wait
+from core.job_status import closed_in_text
 
 try:  # both are normally installed alongside jobspy
     import requests
@@ -52,6 +55,10 @@ REQUEST_HEADERS = {
 
 class _RateLimited(Exception):
     """LinkedIn answered 429 (too many requests)."""
+
+
+class _PostingGone(Exception):
+    """LinkedIn answered 404 or 410: the posting no longer exists."""
 
 
 def _is_blank(value) -> bool:
@@ -143,11 +150,30 @@ def _fetch_linkedin_page(session, job_id: str) -> str:
     resp = session.get(LINKEDIN_JOB_API.format(job_id=job_id), timeout=DESCRIPTION_FETCH_TIMEOUT)
     if resp.status_code == 429:
         raise _RateLimited()
+    if resp.status_code in (404, 410):
+        raise _PostingGone()
     return resp.text if resp.status_code == 200 else ""
+
+
+def _linkedin_page_says_closed(page: str) -> bool:
+    """True when LinkedIn's posting page says it is closed. The description itself is cut out first, so a posting
+    that merely contains words like 'no longer accepting' is not mistaken for a closed one."""
+    soup = BeautifulSoup(page, "html.parser")
+    for node in soup.select("div.show-more-less-html__markup, div.description__text"):
+        node.decompose()
+    return closed_in_text(str(soup))
 
 
 def _fetch_linkedin_description(session, job_id: str) -> str:
     return _parse_linkedin_description(_fetch_linkedin_page(session, job_id))
+
+
+def _job_label(df: pd.DataFrame, idx, limit: int = 60) -> str:
+    """'Title · Company' for the log, cut to `limit` characters."""
+    parts = [str(df.at[idx, col]).strip() for col in ("title", "company")
+             if col in df.columns and not _is_blank(df.at[idx, col])]
+    label = " · ".join(parts) or str(df.at[idx, "job_url"])
+    return label if len(label) <= limit else label[:limit - 1].rstrip() + "…"
 
 
 def fill_missing_descriptions(
@@ -155,9 +181,12 @@ def fill_missing_descriptions(
 ) -> pd.DataFrame:
     """Fetch the description from each LinkedIn job page that lacks one.
 
-    Requests are spaced out to avoid rate limiting. If LinkedIn answers 429
-    three times in a row, fetching stops and the remaining jobs keep an empty
-    description (the caller skips them; they are retried on the next run).
+    Requests are spaced out to avoid rate limiting. Each job gets up to
+    DESCRIPTION_FETCH_ATTEMPTS tries (a 429, a failed request or a page with no
+    description text each use one); a job that still has no description keeps
+    an empty one, which the caller skips and retries on the next run, and the
+    fetcher moves on to the next job. Only if RATE_LIMIT_STOP_AFTER_JOBS is set
+    and that many jobs in a row end on a 429 does fetching stop for the run.
     Returns a copy of df; the index must be unique.
     """
     df = df.copy()
@@ -167,6 +196,8 @@ def fill_missing_descriptions(
     
     if "applicants" not in df.columns:
         df["applicants"] = pd.Series([None] * len(df), index=df.index, dtype=object)
+    if "closed" not in df.columns:
+        df["closed"] = False   # set to True for postings LinkedIn says are closed (see CHECK_AVAILABILITY)
         
     missing = [
         idx
@@ -174,6 +205,15 @@ def fill_missing_descriptions(
         if _is_blank(row["description"]) and "linkedin.com" in str(row.get("job_url", ""))
     ]
     if not missing:
+        blank = [idx for idx, row in df.iterrows() if _is_blank(row["description"])]
+        if df.empty:
+            tag("SCRAPER", "Nothing to download: no jobs are left after the pre-filter.")
+        elif not blank:
+            tag("SCRAPER", f"Nothing to download: all {len(df)} job(s) already came with a description "
+                           "(Indeed and most other sites include it in the search results; only LinkedIn pages are fetched separately).")
+        else:
+            tag("SCRAPER", f"Nothing to download: {len(blank)} job(s) have no description, but they are not on LinkedIn, "
+                           "so there is no page to fetch it from. They are skipped.", "warn")
         return df
 
     if requests is None or BeautifulSoup is None:
@@ -187,34 +227,71 @@ def fill_missing_descriptions(
     session = requests.Session()
     session.headers.update(REQUEST_HEADERS)
     filled = 0
-    rate_limited_in_a_row = 0
+    tries = max(1, int(DESCRIPTION_FETCH_ATTEMPTS))
+    gave_up = 0
+    limited_in_a_row = 0   # jobs in a row that ended on a 429
 
     for n, idx in enumerate(missing, start=1):
+        if stop_requested():
+            break
         job_id = _linkedin_job_id(str(df.at[idx, "job_url"]))
         if not job_id:
             continue
-        try:
-            page = _fetch_linkedin_page(session, job_id)
-            text = _parse_linkedin_description(page) if page else ""
-            link = _parse_linkedin_apply_link(page) if page else None  # usually absent: LinkedIn hides it
-            count = _parse_linkedin_applicants(page) if page else None
-            rate_limited_in_a_row = 0
-        except _RateLimited:
-            rate_limited_in_a_row += 1
-            if rate_limited_in_a_row >= RATE_LIMIT_STOP_AFTER:
-                tag("SCRAPER", "LinkedIn is rate limiting (429). Stopping description "
-                      "fetching; wait a while and re-run to pick up the rest.")
+        label = _job_label(df, idx)
+        tag("SCRAPER", f"Fetching {n}/{len(missing)}: {label}")
+        page, text, limited, closed = "", "", False, False
+        for attempt in range(1, tries + 1):
+            limited = False
+            try:
+                page = _fetch_linkedin_page(session, job_id)
+            except _PostingGone:
+                closed = CHECK_AVAILABILITY
                 break
-            tag("SCRAPER", "Rate limited (429), backing off...")
-            time.sleep(RATE_LIMIT_BACKOFF_SECONDS * rate_limited_in_a_row)
+            except _RateLimited:
+                limited = True
+                if attempt < tries:
+                    tag("SCRAPER", f"Rate limited (429), waiting {RATE_LIMIT_BACKOFF_SECONDS * attempt}s... (try {attempt}/{tries})", "warn")
+                    if stop_wait(RATE_LIMIT_BACKOFF_SECONDS * attempt):
+                        break
+                continue
+            except requests.RequestException as e:
+                tag("SCRAPER", f"Could not fetch the page (try {attempt}/{tries}): {e}", "warn")
+                page = ""
+            if CHECK_AVAILABILITY and page and _linkedin_page_says_closed(page):
+                closed = True
+                break
+            text = _parse_linkedin_description(page) if page else ""
+            if text:
+                break
+            if attempt < tries and stop_wait(random.uniform(min_delay, max_delay)):
+                break
+        if stop_requested() and not text and not closed:
+            break   # stopped mid-job: nothing is saved for it and it is retried next run
+        if closed:   # no more tries, and nothing to retry next run
+            df.at[idx, "closed"] = True
+            limited_in_a_row = 0
+            tag("SCRAPER", "The posting is closed.", "warn")
+            stop_wait(random.uniform(min_delay, max_delay))
             continue
-        except requests.RequestException as e:
-            tag("SCRAPER", f"Could not fetch job {job_id}: {e}")
-            continue
+        link = _parse_linkedin_apply_link(page) if page else None  # usually absent: LinkedIn hides it
+        count = _parse_linkedin_applicants(page) if page else None
+        if not text:
+            gave_up += 1
+            why = "rate limited" if limited else "no description on the page"
+            tag("SCRAPER", f"No description after {tries} tries ({why}); it will be retried next run.", "warn")
+            limited_in_a_row = limited_in_a_row + 1 if limited else 0
+            if RATE_LIMIT_STOP_AFTER_JOBS and limited_in_a_row >= RATE_LIMIT_STOP_AFTER_JOBS:
+                tag("SCRAPER", f"LinkedIn rate limited {limited_in_a_row} jobs in a row. Stopping description "
+                      "fetching; wait a while and re-run to pick up the rest.", "warn")
+                break
+        else:
+            limited_in_a_row = 0
 
         if text:
             df.at[idx, "description"] = text
             filled += 1
+            tag("SCRAPER", f"Got the description ({len(text):,} characters)"
+                + (f" · {count} applicants" if count is not None else ""), "ok")
 
         if count is not None:
             df.at[idx, "applicants"] = count
@@ -226,11 +303,15 @@ def fill_missing_descriptions(
                 df["job_url_direct"] = df["job_url_direct"].astype(object)
             if _is_blank(df.at[idx, "job_url_direct"]):
                 df.at[idx, "job_url_direct"] = link
-        if n % 10 == 0:
-            tag("SCRAPER", f"Fetched {n}/{len(missing)} pages ({filled} descriptions)")
-        time.sleep(random.uniform(min_delay, max_delay))
+        stop_wait(random.uniform(min_delay, max_delay))
 
-    tag("SCRAPER", f"Got descriptions for {filled}/{len(missing)} jobs")
+    if stop_requested():
+        tag("SCRAPER", "Stopped by you. The jobs not fetched yet are retried next run.", "warn")
+
+    closed_now = int(df.loc[missing, "closed"].sum())
+    tag("SCRAPER", f"Got descriptions for {filled}/{len(missing)} jobs"
+          + (f" ({closed_now} closed)" if closed_now else "")
+          + (f" ({gave_up} still missing after {tries} tries; they are retried next run)" if gave_up else ""))
     return df
 
 

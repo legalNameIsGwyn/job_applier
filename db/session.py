@@ -53,6 +53,9 @@ def create_tables(engine) -> None:
 
 # Columns added after a table was first created. create_all() never alters an existing table, so they are added here.
 _NEW_COLUMNS = {
+    "jobs": {
+        "last_checked": "DATETIME",
+    },
     "job_scores": {
         "compat_detail_pct": "FLOAT",
         "compat_missing": "TEXT DEFAULT '[]'",

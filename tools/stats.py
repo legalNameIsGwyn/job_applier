@@ -20,11 +20,13 @@ from datetime import date, datetime, timedelta
 import db.tracking as T
 from config import settings as _s
 from config.settings import DB_PATH
+from core.console import INDENT, paint, section, step, wrap
 from db.queries import stats_jobs
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 
 GOOD_SCORE = getattr(_s, "MIN_SCORE", 6)
 MIN_SAMPLE = 5   # below this many applications, say so
+BAR_WIDTH = 20   # characters in a funnel bar
 TITLE_BUCKETS = ("python", "backend", "full stack", "fullstack", "frontend", "front end", "data", "devops",
                  "cloud", "qa", "test", "support", "junior", "associate", "intern", "software engineer",
                  "software developer", "developer")
@@ -58,7 +60,25 @@ def gather(days: int | None = None, db_path=DB_PATH) -> dict:
     return {"jobs": jobs, "tracked": tr, "days": days}
 
 
+# ----------------------------------------------------------------------------------- drawing
+
+def _header(text: str) -> str:
+    """A gray column-header line, e.g. '  applied   heard   rate'. The text is padded by the caller."""
+    return INDENT + paint(text, "gray")
+
+
+def _bar(n: int, base: int) -> str:
+    """██████░░░░ : n as a share of base (full if n is larger)."""
+    filled = min(BAR_WIDTH, round(BAR_WIDTH * n / base)) if base else 0
+    return paint("█" * filled, "green") + paint("░" * (BAR_WIDTH - filled), "gray")
+
+
+def _note(text: str) -> str:
+    return wrap(text, color="gray")
+
+
 # ---------------------------------------------------------------------------------- sections
+# Each section returns the lines under its title. The title itself is drawn by show_report().
 
 def funnel(data) -> list[str]:
     jobs, tr = data["jobs"], data["tracked"]
@@ -78,40 +98,45 @@ def funnel(data) -> list[str]:
             ("Heard back", heard, applied),
             ("Interview", interviewed, applied),
             ("Offer", offered, applied)]
-    out = ["FUNNEL", f"  {'':<30}{'count':>6}   % of step before"]
+    out = [_header(f"{'':<30}{'count':>6}   {'of step before':<18}")]
     for name, n, base in rows:
-        out.append(f"  {name:<30}{n:>6}   {pct(n, base) if base is not None else ''}")
-    out.append(f"  Still waiting: {waiting}   rejected: {rejected}   ghosted: {ghosted}")
+        line = INDENT + paint(f"{name:<30}", "white") + f"{n:>6}"
+        if base is not None:
+            line += f"   {pct(n, base):>4}  {_bar(n, base)}"
+        out.append(line)
+    out.append(INDENT + f"{paint('still waiting', 'gray')} {waiting}   {paint('rejected', 'gray')} {rejected}"
+                        f"   {paint('ghosted', 'gray')} {ghosted}")
     if applied and applied < MIN_SAMPLE:
-        out.append(f"  (Only {applied} application(s) so far: percentages will jump around.)")
+        out.append(_note(f"Only {applied} application(s) so far: percentages will jump around."))
     if good and applied > len(good):
-        out.append("  (More applied than good matches: some applications scored below the cutoff or were tracked by hand.)")
+        out.append(_note("More applied than good matches: some applications scored below the cutoff "
+                         "or were tracked by hand."))
     return out
 
 
 def score_vs_outcome(data) -> list[str]:
     tr = [t for t in data["tracked"] if t.get("score_at_apply") is not None or t.get("match_score") is not None]
-    out = ["SCORE VS OUTCOME  (does a higher score get more answers?)"]
     if not tr:
-        return out + ["  No tracked applications with a score yet."]
+        return [_note("No tracked applications with a score yet.")]
     bands = [(0, 6, "under 6"), (6, 7, "6 - 7"), (7, 8, "7 - 8"), (8, 9, "8 - 9"), (9, 10.01, "9 - 10")]
-    out.append(f"  {'score':<10}{'applied':>8}{'heard':>8}{'rate':>7}{'interview':>11}{'rate':>7}")
+    out = [_header(f"{'score':<10}{'applied':>8}{'heard':>8}{'rate':>7}{'interview':>11}{'rate':>7}")]
     for lo, hi, label in bands:
         group = [t for t in tr if lo <= (t["score_at_apply"] if t["score_at_apply"] is not None else t["match_score"]) < hi]
         if not group:
             continue
         h = sum(t["heard"] for t in group)
         i = sum(t["interviewed"] for t in group)
-        out.append(f"  {label:<10}{len(group):>8}{h:>8}{pct(h, len(group)):>7}{i:>11}{pct(i, len(group)):>7}")
+        out.append(INDENT + paint(f"{label:<10}", "white")
+                   + f"{len(group):>8}{h:>8}{pct(h, len(group)):>7}{i:>11}{pct(i, len(group)):>7}")
     scores = [(t["score_at_apply"] if t["score_at_apply"] is not None else t["match_score"]) for t in tr]
     if len(tr) >= 8:
         heard_avg = [s for s, t in zip(scores, tr) if t["heard"]]
         quiet_avg = [s for s, t in zip(scores, tr) if not t["heard"]]
         if heard_avg and quiet_avg:
-            out.append(f"  Average score: {statistics.mean(heard_avg):.1f} when they answered, "
-                       f"{statistics.mean(quiet_avg):.1f} when they didn't.")
+            out.append(_note(f"Average score: {statistics.mean(heard_avg):.1f} when they answered, "
+                             f"{statistics.mean(quiet_avg):.1f} when they didn't."))
     else:
-        out.append(f"  ({len(tr)} application(s): need roughly 20+ before this says much.)")
+        out.append(_note(f"{len(tr)} application(s): need roughly 20+ before this says much."))
     return out
 
 
@@ -124,21 +149,22 @@ def _group(tr, keyfn):
 
 
 def _table(title, groups, limit=8) -> list[str]:
-    out = [f"  By {title}", f"    {'':<28}{'applied':>8}{'heard':>8}{'rate':>7}{'interview':>11}"]
+    out = ["", INDENT + paint(f"By {title}", "sky", True),
+           _header(f"{'':<28}{'applied':>8}{'heard':>8}{'rate':>7}{'interview':>11}")]
     ranked = sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:limit]
     for key, group in ranked:
         h = sum(t["heard"] for t in group)
         i = sum(t["interviewed"] for t in group)
-        out.append(f"    {str(key)[:27]:<28}{len(group):>8}{h:>8}{pct(h, len(group)):>7}{i:>11}")
+        out.append(INDENT + paint(f"{str(key)[:27]:<28}", "white")
+                   + f"{len(group):>8}{h:>8}{pct(h, len(group)):>7}{i:>11}")
     return out
 
 
 def breakdown(data) -> list[str]:
     tr = data["tracked"]
-    out = ["BREAKDOWN  (what's working)"]
     if not tr:
-        return out + ["  No tracked applications yet."]
-    out += _table("job site", _group(tr, lambda t: [(t["site"] or "unknown")]))
+        return [_note("No tracked applications yet.")]
+    out = _table("job site", _group(tr, lambda t: [(t["site"] or "unknown")]))[1:]   # no blank line before the first table
     out += _table("applicant system", _group(tr, lambda t: [(t["ats"] or "unknown")]))
     out += _table("company", _group(tr, lambda t: [(t["company"] or "unknown")]), limit=6)
 
@@ -157,7 +183,6 @@ def _week(d: str) -> str:
 
 def trends(data) -> list[str]:
     jobs, tr = data["jobs"], data["tracked"]
-    out = ["TRENDS  (weeks start Monday)"]
     scraped = defaultdict(int)
     for j in jobs:
         if j["scraped_at"]:
@@ -170,34 +195,46 @@ def trends(data) -> list[str]:
             heard[_week(t["applied_on"])] += t["heard"]
     weeks = sorted(set(scraped) | set(applied))[-8:]
     if not weeks:
-        return out + ["  Nothing yet."]
-    out.append(f"  {'week of':<12}{'scraped':>9}{'applied':>9}{'heard back':>12}")
+        return [_note("Nothing yet.")]
+    out = [_header(f"{'week of':<12}{'scraped':>9}{'applied':>9}{'heard back':>12}")]
     for w in weeks:
-        out.append(f"  {w:<12}{scraped.get(w, 0):>9}{applied.get(w, 0):>9}{heard.get(w, 0):>12}")
+        out.append(INDENT + paint(f"{w:<12}", "white") + f"{scraped.get(w, 0):>9}{applied.get(w, 0):>9}{heard.get(w, 0):>12}")
     waits = []
     for t in tr:
         if t["first_response_on"] and t["applied_on"]:
             d = (datetime.strptime(t["first_response_on"], "%Y-%m-%d") - datetime.strptime(t["applied_on"], "%Y-%m-%d")).days
             waits.append(max(d, 0))
     if waits:
-        out.append(f"  Days to hear back: median {statistics.median(waits):g}, fastest {min(waits)}, slowest {max(waits)} "
-                   f"({len(waits)} answered)")
+        out.append(_note(f"Days to hear back: median {statistics.median(waits):g}, fastest {min(waits)}, "
+                         f"slowest {max(waits)} ({len(waits)} answered)"))
     open_ages = [(date.today() - datetime.strptime(t["applied_on"], "%Y-%m-%d").date()).days
                  for t in tr if t["stage"] == "applied" and t["applied_on"]]
     if open_ages:
-        out.append(f"  Waiting on {len(open_ages)}; the oldest has been quiet {max(open_ages)} day(s).")
+        out.append(_note(f"Waiting on {len(open_ages)}; the oldest has been quiet {max(open_ages)} day(s)."))
     return out
 
 
-SECTIONS = {"funnel": funnel, "score": score_vs_outcome, "breakdown": breakdown, "trends": trends}
+# name -> (function, title, what the title's note says)
+SECTIONS = {
+    "funnel": (funnel, "FUNNEL", ""),
+    "score": (score_vs_outcome, "SCORE VS OUTCOME", "does a higher score get more answers?"),
+    "breakdown": (breakdown, "BREAKDOWN", "what's working"),
+    "trends": (trends, "TRENDS", "weeks start Monday"),
+}
 
 
-def report(days=None, sections=None, db_path=DB_PATH) -> str:
+def show_report(days=None, sections=None, db_path=DB_PATH) -> None:
+    """Print the stats report. sections: names from SECTIONS (None = all of them)."""
     data = gather(days, db_path)
-    title = (f"JOB SEARCH STATS ({'last ' + str(days) + ' days' if days else 'all time'}; "
-             f"job counts for profile '{active_profile_name()}', applications from all profiles)")
-    blocks = [[title]] + [SECTIONS[s](data) for s in (sections or SECTIONS)]
-    return "\n\n".join("\n".join(b) for b in blocks)
+    period = f"last {days} days" if days else "all time"
+    step(None, "JOB SEARCH STATS", f"{period} · job counts for this profile, applications from all profiles",
+         right=f"profile: {active_profile_name()}")
+    for name in (sections or SECTIONS):
+        func, title, extra = SECTIONS[name]
+        print()
+        print(section(title, paint(extra, "gray") if extra else ""))
+        print("\n".join(func(data)))
+    print()
 
 
 if __name__ == "__main__":
@@ -211,4 +248,4 @@ if __name__ == "__main__":
     chosen = [s.strip() for s in a.section.split(",")] if a.section else None
     if chosen and any(s not in SECTIONS for s in chosen):
         ap.error("section must be among: " + ", ".join(SECTIONS))
-    print(report(a.days, chosen))
+    show_report(a.days, chosen)

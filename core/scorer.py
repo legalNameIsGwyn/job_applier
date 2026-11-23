@@ -45,17 +45,42 @@ def load_resume() -> dict:
         return json.load(f)
 
 
+_OPEN_TO_GREEN_CARD = re.compile(r"permanent resident|green card|lawfully admitted", re.I)
+_NEGATED_BEFORE = re.compile(r"\b(not|no|cannot|unable|without)\b[^.\n]{0,25}$", re.I)
+_NEGATED_AFTER = re.compile(
+    r"^s?\s*(holders?\s+|applicants?\s+|candidates?\s+)?(will not|won't|cannot|can't|are not|aren't|do not|does not|not be|not eligible)", re.I)
+
+
+def _open_to_green_card(text: str, start: int, end: int) -> bool:
+    """'U.S. citizen or permanent resident' (same line, close by) is open to a green card holder."""
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", end)
+    line_end = len(text) if line_end < 0 else line_end
+    near = text[max(line_start, start - 60): min(line_end, end + 80)]
+    found = _OPEN_TO_GREEN_CARD.search(near)
+    return bool(found) and not (_NEGATED_BEFORE.search(near[:found.start()]) or _NEGATED_AFTER.match(near[found.end():]))
+
+
 def blocked_reason(title: str, description: str) -> str | None:
-    """Return a reason if the posting needs clearance / US citizenship, else None."""
-    text = f"{title}\n{description}".lower()
+    """Return a reason if the posting needs a clearance / US citizenship, else None.
+
+    The reason quotes the words that matched, e.g. 'Requires a security clearance ("Secret clearance") (auto-rejected)'.
+    """
+    raw = f"{title}\n{description}"
+    text = raw.lower()
     no_clearance = re.search(NO_BLOCKER_PATTERN, text)
     for pattern in BLOCKER_PATTERNS:
-        if no_clearance and "citizen" not in pattern:
+        citizenship = "citizen" in pattern
+        if no_clearance and not citizenship:
             continue    # "no clearance required" cancels clearance rules only, never citizenship
         for m in re.finditer(pattern, text):
             if re.match(r"[^.\n]{0,40}?:\s*(no|false|n/?a)\b", text[m.end():m.end() + 50]):
                 continue    # "US Citizenship Required for this Position: No"
-            return "Requires clearance or US citizenship (auto-rejected)"
+            if citizenship and _open_to_green_card(text, m.start(), m.end()):
+                continue
+            phrase = " ".join(raw[m.start():m.end()].split())[:40]
+            what = "U.S. citizenship" if citizenship else "a security clearance"
+            return f'Requires {what} ("{phrase}") (auto-rejected)'
     return None
 
 

@@ -109,10 +109,10 @@ def print_text(d: dict, already_shown: set[str] | None = None) -> None:
     step(None, "SUMMARY", right=f"{d['generated']} · {d['profile']}")
     print()
     say("new", f"{paint(sum(new.values()), 'white', True)} in {when} · "
-        + _counts(new, (("scored", "scored"), ("filtered", "filtered"), ("duplicate", "dupes"))
+        + _counts(new, (("scored", "scored"), ("filtered", "filtered"), ("blocked", "blocked"), ("closed", "closed"), ("duplicate", "dupes"))
                   + ((("scoring_failed", "failed"),) if new.get("scoring_failed") else ())))
     say("total", f"{paint(sum(total.values()), 'white', True)} in the database · "
-        + _counts(total, (("scored", "scored"), ("filtered", "filtered"), ("duplicate", "dupes"))))
+        + _counts(total, (("scored", "scored"), ("filtered", "filtered"), ("blocked", "blocked"), ("closed", "closed"), ("duplicate", "dupes"))))
 
     # Best new matches, in full. Jobs main.py just showed in stage 5 are only counted, not repeated.
     shown = already_shown or set()
@@ -224,7 +224,7 @@ td.s{{font-weight:700;width:3rem}}span{{color:#666;font-size:.9em}}.none{{color:
 @media(prefers-color-scheme:dark){{body{{background:#161616;color:#e8e8e8}}td{{border-color:#333}}code{{background:#2a2a2a}}a{{color:#8ab4f8}}span,h2{{color:#aaa}}.stats span{{color:#e8e8e8}}}}
 </style></head><body><h1>Job summary</h1><p>{e(d['generated'])} &middot; profile: {e(d['profile'])}</p>
 <h2>New in the last {when}</h2><p class=stats><span><b>{sum(new.values())}</b> new</span><span><b>{new.get('scored', 0)}</b> scored</span>
-<span><b>{new.get('filtered', 0)}</b> filtered</span><span><b>{new.get('duplicate', 0)}</b> duplicates</span><span><b>{new.get('scoring_failed', 0)}</b> failed</span></p>
+<span><b>{new.get('filtered', 0)}</b> filtered</span><span><b>{new.get('blocked', 0)}</b> blocked</span><span><b>{new.get('duplicate', 0)}</b> duplicates</span><span><b>{new.get('scoring_failed', 0)}</b> failed</span></p>
 <p>Database total: {sum(total.values())} jobs, {total.get('scored', 0)} scored.</p>
 <h2>Best new matches ({d['min_score']:g}+)</h2>{rows(d['top_new'])}
 <h2>Ready to apply ({len(d['ready'])})</h2>{rows(d['ready'][:10], lambda j: j['ats'])}
