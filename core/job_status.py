@@ -1,8 +1,9 @@
 """Is a job posting still open? Checked before you spend time filling in a form.
 
-check_open(url) returns "open", "closed" or "unknown" (the site didn't say, or couldn't be reached).
+check_open(url) returns "open", "closed", "maybe_closed" or "unknown" (the site didn't say, or couldn't be reached).
 Greenhouse, Lever, Ashby, Workday and LinkedIn postings are checked through their own public data;
-anything else is judged from the page's text. "unknown" is never treated as closed.
+anything else is judged from the page's text. Text alone only counts as "closed" on LinkedIn and Indeed;
+on other sites it returns "maybe_closed" (a warning, never recorded). "unknown" is never treated as closed.
 """
 
 import re
@@ -14,6 +15,9 @@ except ImportError:  # pragma: no cover
     requests = None
 
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json, text/html"}
+
+# Page text that says "closed" is only trusted on these sites. Anywhere else it is just a warning.
+TEXT_TRUSTED_HOSTS = ("linkedin.com", "indeed.com")
 
 CLOSED_TEXT = re.compile(
     r"no longer (accepting|taking|receiving|available|open|hiring)|"
@@ -106,5 +110,8 @@ def check_open(url: str | None, get=None) -> str:
     if resp.status_code in (404, 410):
         return "closed"
     if resp.status_code == 200:
-        return "closed" if closed_in_text(resp.text[:30000]) else "open"
+        if closed_in_text(resp.text[:30000]):
+            # page text is only trusted on LinkedIn and Indeed; elsewhere it is just a warning
+            return "closed" if host.endswith(TEXT_TRUSTED_HOSTS) else "maybe_closed"
+        return "open"
     return "unknown"

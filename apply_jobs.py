@@ -204,14 +204,14 @@ def apply_to_job(context, job: dict, url: str, ats: str, ask=input, answerer=Non
                                               show_report=print_report, auto_advance=WORKDAY_AUTO_ADVANCE,
                                               max_steps=WORKDAY_MAX_STEPS)
             if outcome == "closed":
-                return "closed"
+                print("  The page text says this posting is closed. Not recording it as closed; check it in the browser.")
         elif ats in GENERIC_SITES:
             import applying.generic as generic
             outcome = generic.run_application(page, url, answerer, resume_file, letter_file, ask=ask, show=print,
                                               show_report=print_report, auto_advance=GENERIC_AUTO_ADVANCE,
                                               max_steps=GENERIC_MAX_STEPS, timeout_ms=PAGE_TIMEOUT_MS)
             if outcome == "closed":
-                return "closed"
+                print("  The page text says this posting is closed. Not recording it as closed; check it in the browser.")
         else:
             frame = open_application(page, url, PAGE_TIMEOUT_MS)
             try:
@@ -219,8 +219,7 @@ def apply_to_job(context, job: dict, url: str, ats: str, ask=input, answerer=Non
             except Exception:
                 body = ""
             if closed_in_text(body[:20000]) and frame is None:
-                print("  This posting says it is closed.")
-                return "closed"
+                print("  The page text says this posting is closed. Not recording it as closed; check it in the browser.")
             if frame is None:
                 print("  Couldn't find the application form on that page. It's open in the browser for you.")
             else:
@@ -266,18 +265,21 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
         link, ats, reason = target_for(job)
         print()
         job_head(f"{fmt_score(job['match_score'])}  {job['title']}", job["company"], link or job["job_url"])
+        status = check_open(link) if (CHECK_STILL_OPEN and not reason) else "open"
         if reason:
             decision("skip", f"skip: {reason}")
-        elif CHECK_STILL_OPEN and check_open(link) == "closed":
+        elif status == "closed":
             decision("bad", "closed: the posting is no longer open")
             record_application(job["job_url"], "closed", apply_url=link, ats=ats)
         else:
             decision("ok", f"ready: {ats}{' (generic filler, best effort)' if ats in GENERIC_SITES else ''}")
+            if status == "maybe_closed":
+                print("  WARNING: the page text mentions the job being closed. Not recorded as closed; check it when the form opens.")
             ready.append((job, link, ats))
     print()
     tag("APPLY", f"{len(ready)} of {len(jobs)} job(s) can be filled.")
 
-    if list_only or not ready:
+    if list_only or not ready or limit <= 0:
         return
 
     if parallel > 1 and len(ready[:limit]) > 1:

@@ -9,6 +9,7 @@ Order for every question:
 """
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -214,9 +215,17 @@ class Answerer:
         return reply or None
 
     def _remember(self, key: str, value: str) -> None:
-        self.learned[key] = value
+        # Re-read the file first so answers saved by other windows aren't lost, then write atomically.
         try:
-            self.learned_file.write_text(json.dumps(self.learned, indent=2, ensure_ascii=False), encoding="utf-8")
+            current = json.loads(self.learned_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            current = {}
+        current[key] = value
+        self.learned = current
+        try:
+            tmp = self.learned_file.with_name(f"{self.learned_file.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, self.learned_file)
         except OSError as e:
             print(f"  (could not save the answer: {e})")
 

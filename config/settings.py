@@ -9,7 +9,7 @@ from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent  # the folder that contains main.py
 
-DEFAULT_PROFILE = "software"   # the profile used when you don't pass --profile
+DEFAULT_PROFILE = "admin"   # the profile used when you don't pass --profile
 MIN_SCORE = 5
 ACTIVE_PROFILE = DEFAULT_PROFILE
 
@@ -32,15 +32,15 @@ SEARCH_TERMS = [
     "associate software engineer",
 ]
 LOCATION = "Norfolk, VA"
-RESULTS_WANTED = 5   # per site, per search term
-HOURS_OLD = 72    
+RESULTS_WANTED = 15   # per site, per search term
+HOURS_OLD = 24    
 
-LINKEDIN_RESULTS_WANTED = 5   # LinkedIn blocks big pulls
+LINKEDIN_RESULTS_WANTED = 10   # LinkedIn blocks big pulls
 LINKEDIN_JOBSPY_FETCH_DESCRIPTIONS = False  # False = JobSpy won't open every job page
 # main.py's slower fetcher fills descriptions in instead
 
 # LinkedIn applicant-count filter (read from each job's public page)
-MAX_APPLICANTS = 25              # skip LinkedIn jobs with more applicants than this; None = don't filter
+MAX_APPLICANTS = None              # skip LinkedIn jobs with more applicants than this; None = don't filter
 KEEP_UNKNOWN_APPLICANTS = True   # keep jobs whose page shows no usable count
 
 
@@ -87,12 +87,12 @@ STOP_FETCH_THEN_SCORE = True   # True = score the descriptions already downloade
 MAKE_DOCS = True          # create a resume + cover letter automatically after scoring
 MAX_DOCS_PER_RUN = None     # most NEW jobs to make documents for per run
 DOC_WINDOW_DAYS = 7       # only consider jobs scraped in the last N days
-MAX_PROJECTS = 3          # projects shown on the resume
+MAX_PROJECTS = 5          # projects shown on the resume
 TAILOR_MAX_SKILLS = 12    # skills the model may move to the front (all skills are still listed)
 FONT = "Calibri"
 COVER_LETTER_GREETING = "Good day,"
 COVER_LETTER_SIGN_OFF = "Sincerely,"
-REVIEW_BRIDGES = True   # scheduled or piped runs never ask.
+REVIEW_BRIDGES = False   # scheduled or piped runs never ask.
 
 # ------------------------------------------------------------------------------ file names
 # Names are built from your resume.json and the job. ".docx" is added for you.
@@ -135,7 +135,7 @@ HARD_REQ_CAP = 60         # detailed % is capped here when a hard requirement is
 HARD_REQ_KINDS = ("clearance", "work_authorization")   # a missing required item of these caps the detailed %; licenses and certifications are only flagged
 DROP_ON_MISSING_KINDS = ("clearance",)   # a required item of these kinds you lack DROPS the job after the detailed check. Add "work_authorization" to drop those too; licenses and certifications are only flagged
 
-MAX_BRIDGE_LINES = 2      # bridge lines proposed per job
+MAX_BRIDGE_LINES = 5      # bridge lines proposed per job
 
 # Tailoring mode: "auto", "standard", "bridge" or "boilerplate".
 # auto picks one per job from its compatibility percentage.
