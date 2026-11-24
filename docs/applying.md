@@ -150,6 +150,8 @@ empty. Start-date and notice-period questions are answered "Immediately" / "None
 signatures and consent checkboxes are **never** filled for you. A required
 field that no rule can fill is listed under "NEEDS YOUR ATTENTION".
 
+After each job, the tool adds what it filled in to `fill_report.txt` in that job's application folder: every field, the value typed, where the answer came from (rule, learned, draft or asked), and the fields that still needed you. Each run adds a dated section at the bottom. The file holds your real answers, so it stays in the private applications folder.
+
 ### Diagnostics
 
 ```powershell

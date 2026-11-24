@@ -27,11 +27,11 @@ ENABLED_SITES = {
 GENERIC_AUTO_ADVANCE = True   # click Next/Continue on its own when nothing on the page needs you
 GENERIC_MAX_STEPS = 10        # most pages to walk through on one application
 
-AUTO_FIND_LINKS = False
+AUTO_FIND_LINKS = True
 FIND_LINKS_MAX = 25   # most LinkedIn pages to read per run
 
 LINKEDIN_CLICK_APPLY = True      # opt-in; set False to turn it off
-LINKEDIN_CLICK_MAX = 10          # most LinkedIn postings to click through per run
+LINKEDIN_CLICK_MAX = 100          # most LinkedIn postings to click through per run
 LINKEDIN_CLICK_DELAY = (8, 20)   # random pause in seconds between postings
 CHECK_STILL_OPEN = True
 WORKDAY_AUTO_ADVANCE = True

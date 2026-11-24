@@ -43,6 +43,7 @@ from db.queries import clear_missing_link_markers, get_candidates   # get_candid
 from db.repo import init_db, record_application, set_apply_url
 from db.session import add_profile_arguments, apply_profile_arguments
 from applying.form_filler import fill_form, open_application
+from applying.fill_report import save_fill_report
 from core.job_status import check_open, closed_in_text
 from core.scorer import load_resume
 from core.console import decision, fmt_score, job_head, step, tag
@@ -196,19 +197,26 @@ def apply_to_job(context, job: dict, url: str, ats: str, ask=input, answerer=Non
     resume_file, letter_file = document_files(job)
     answerer = answerer or Answerer(resume, job, ask=ask)
 
+    pages_filled = []                    # every page's Report, saved to the job's fill_report.txt at the end
+
+    def capture(report) -> None:
+        pages_filled.append(report)
+        print_report(report)             # looked up when called, so the parallel worker's replacement still applies
+
     page = context.new_page()
+    result = "error"                     # stays "error" if something raises before you answer
     try:
         if ats == "workday":
             import applying.workday as workday
             outcome = workday.run_application(page, url, answerer, resume_file, letter_file, ask=ask, show=print,
-                                              show_report=print_report, auto_advance=WORKDAY_AUTO_ADVANCE,
+                                              show_report=capture, auto_advance=WORKDAY_AUTO_ADVANCE,
                                               max_steps=WORKDAY_MAX_STEPS)
             if outcome == "closed":
                 print("  The page text says this posting is closed. Not recording it as closed; check it in the browser.")
         elif ats in GENERIC_SITES:
             import applying.generic as generic
             outcome = generic.run_application(page, url, answerer, resume_file, letter_file, ask=ask, show=print,
-                                              show_report=print_report, auto_advance=GENERIC_AUTO_ADVANCE,
+                                              show_report=capture, auto_advance=GENERIC_AUTO_ADVANCE,
                                               max_steps=GENERIC_MAX_STEPS, timeout_ms=PAGE_TIMEOUT_MS)
             if outcome == "closed":
                 print("  The page text says this posting is closed. Not recording it as closed; check it in the browser.")
@@ -225,13 +233,17 @@ def apply_to_job(context, job: dict, url: str, ats: str, ask=input, answerer=Non
             else:
                 if closed_in_text(body[:3000]):
                     print("  WARNING: the page mentions the job being closed or unavailable. Check before filling in more.")
-                print_report(fill_form(frame, answerer, resume_file, letter_file))
+                capture(fill_form(frame, answerer, resume_file, letter_file))
         reply = ask("\n  Review the form, fix anything, and submit it yourself in the browser.\n"
                     "  Then type  a = I submitted it,  s = skip this job for good,  Enter = not yet: ")
+        reply = reply.strip().lower()
+        result = "applied" if reply.startswith("a") else "skipped" if reply.startswith("s") else "opened"
     finally:
         page.close()
-    reply = reply.strip().lower()
-    return "applied" if reply.startswith("a") else "skipped" if reply.startswith("s") else "opened"
+        saved = save_fill_report(job_folder(job), job, url, ats, pages_filled, result)
+        if saved:
+            print(f"  Fill report saved: {saved}")
+    return result
 
 
 def print_report(report) -> None:
