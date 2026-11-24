@@ -7,19 +7,20 @@ and then STOPS. It never clicks Submit: you read the form, fix anything wrong, a
 from config.settings import PROJECT_DIR
 
 # ------------------------------------------------------------------- which jobs
-APPLY_MAX_PER_RUN = 5      # most jobs to open per run
-APPLY_WINDOW_DAYS = 14     # only jobs scraped in the last N days
+APPLY_MAX_PER_RUN = 1      # most jobs to open per run
+APPLY_WINDOW_DAYS = 7     # only jobs scraped in the last N days
 
 # ------------------------------------------------------------- which sites to fill
-# True = fill applications on that site. "workday", "linkedin" and "indeed" are listed so you
-# can opt in later, but their fillers are not built yet; turning them on only prints a notice.
+# True = fill applications on that site. Greenhouse, Lever, Ashby, Workday and "generic" have fillers.
+# "linkedin" (Easy Apply) and "indeed" (Indeed's own forms) have NO filler yet: True or False only changes
+# the notice shown for those jobs ("filler isn't built yet" vs "turned off").
 ENABLED_SITES = {
     "greenhouse": True,
     "lever": True,
     "ashby": True,
     "workday": True,
-    "linkedin": True,   
-    "indeed": False,     
+    "linkedin": True,    # Easy Apply: no filler yet
+    "indeed": False,     # Indeed's own forms: no filler yet    
     "generic": True,     
     # iCIMS, Taleo, SmartRecruiters, Workable, employer career pages...
 }

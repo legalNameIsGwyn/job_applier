@@ -6,7 +6,6 @@
 
 The active profile is chosen once, while the config files load, from (first match wins):
     --profile NAME on the command line   |   DEFAULT_PROFILE (config/settings.py)
-Environment variables are NOT used, so a leftover value in a PowerShell window can't change the profile.
 Every config file ends with two lines that call apply_overrides(globals()), so by the time any other
 code does `from config.settings import SEARCH_TERMS` the profile's value is already in place.
 

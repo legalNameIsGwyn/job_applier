@@ -90,7 +90,7 @@ python apply_jobs.py --recheck-links                # search again for jobs mark
 python apply_jobs.py --login                        # log in to LinkedIn by hand, once (or: --login indeed)
 ```
 
-Defaults for count and age come from `config\apply_settings.py`; the score cutoff is `MIN_SCORE`. Jobs with a status in
+Defaults for count and age come from `config\apply_settings.py` (`APPLY_WINDOW_DAYS` is 7, the same window documents use); the score cutoff is `MIN_SCORE`. Jobs with a status in
 `applications.xlsx` are never offered (naming one with `--url` still works).
 
 **Several at once.** The terminal where you ran the command only shows a short summary. Up to `PARALLEL_JOBS`
@@ -112,7 +112,7 @@ Enter (not yet). Because the copies are deleted afterwards, an account you creat
 | LinkedIn Easy Apply, Indeed's own forms | Not supported |
 
 Every filler pauses when a page has fields that need you instead of moving on. Each site type is a switch in
-`ENABLED_SITES`.
+`ENABLED_SITES`. `linkedin` (Easy Apply) and `indeed` have no filler yet, so those jobs are listed as "can't be filled" whichever way they are set.
 
 ### Finding the employer's link
 
