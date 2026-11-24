@@ -152,6 +152,8 @@ field that no rule can fill is listed under "NEEDS YOUR ATTENTION".
 
 After each job, the tool adds what it filled in to `fill_report.txt` in that job's application folder: every field, the value typed, where the answer came from (rule, learned, draft or asked), and the fields that still needed you. Each run adds a dated section at the bottom. The file holds your real answers, so it stays in the private applications folder.
 
+Street address and zip come from `contact.address` and `contact.zip`; "recent job title" and "recent employer" come from the first entry in `experience` (put the newest job first). Long free-text drafts are checked against your resume by a second model pass, which removes claims the resume doesn't support; `DRAFT_SELF_CHECK` in `config\apply_settings.py` turns that off.
+
 ### Diagnostics
 
 ```powershell

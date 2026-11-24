@@ -15,7 +15,7 @@ from pathlib import Path
 
 from config.answers import ANSWER_RULES, NEVER_ANSWER
 from config.apply_settings import (
-    ASK_ABOUT_UNKNOWN, DRAFT_FREE_TEXT, FREE_TEXT_MAX_WORDS, LEARNED_ANSWERS_FILE,
+    ASK_ABOUT_UNKNOWN, DRAFT_FREE_TEXT, DRAFT_SELF_CHECK, FREE_TEXT_MAX_WORDS, LEARNED_ANSWERS_FILE,
 )
 from config.settings import DESCRIPTION_CHARS_WRITING
 
@@ -76,6 +76,8 @@ def label_key(label: str) -> str:
 def resume_values(resume: dict) -> dict:
     """Placeholders available to the answers in config/answers.py."""
     contact = resume.get("contact", {})
+    experience = resume.get("experience") or [{}]
+    recent = experience[0] if isinstance(experience[0], dict) else {}   # newest job first
     sid = resume.get("self_identification") or {}
     words = resume.get("name", "").split()
     digits = re.sub(r"\D", "", contact.get("phone", ""))
@@ -101,6 +103,10 @@ def resume_values(resume: dict) -> dict:
         "location": location,
         "city": city,
         "state": state,
+        "address": contact.get("address", ""),
+        "zip": contact.get("zip", ""),
+        "recent_title": recent.get("role", ""),
+        "recent_employer": recent.get("company", ""),
         "linkedin_url": url(contact.get("linkedin", ""), "https://www.linkedin.com/in/"),
         "github_url": url(contact.get("github", ""), "https://github.com/"),
         "gitlab_url": url(contact.get("gitlab", ""), "https://gitlab.com/"),
@@ -266,5 +272,40 @@ class Answerer:
         except Exception as e:
             print(f"  (the model could not draft an answer: {e})")
             return None
-        words = text.split()
+        if DRAFT_SELF_CHECK and text:
+            text = self.verify_draft(question, text, _resume_facts(self.resume), _ask)
+        words = (text or "").split()
         return " ".join(words[:FREE_TEXT_MAX_WORDS]) if words else None
+
+    @staticmethod
+    def verify_draft(question: str, draft: str, facts: str, ask_model) -> str | None:
+        """Second pass: the model lists claims in the draft that the resume doesn't support and rewrites it
+        without them. Returns the draft if nothing is unsupported, the corrected text if it was fixed, or None
+        (so you are asked instead) if nothing honest is left or the check itself failed."""
+        prompt = (
+            "You are checking a draft answer to a job application question for invented claims.\n\n"
+            f"QUESTION: {question}\n\nDRAFT ANSWER:\n{draft}\n\n"
+            f"RESUME FACTS (the only true facts about the applicant):\n{facts}\n\n"
+            "Go through the draft claim by claim. A claim is unsupported unless the resume facts above state it "
+            "directly: duties, tools, skills, industries, employers, numbers and experience all count. Do not "
+            "accept a claim because it fits the job or sounds plausible.\n"
+            '- "unsupported": every unsupported claim, quoted briefly (empty list if there are none).\n'
+            '- "corrected": the answer rewritten in first person using only supported facts, plain prose, no '
+            "greeting or sign-off. If the resume gives no honest answer to the question, use an empty string.\n"
+            'Reply as JSON: {"unsupported": ["..."], "corrected": "..."}'
+        )
+        schema = {"type": "object",
+                  "properties": {"unsupported": {"type": "array", "items": {"type": "string"}},
+                                 "corrected": {"type": "string"}},
+                  "required": ["unsupported", "corrected"]}
+        try:
+            result = ask_model(prompt, schema)
+            unsupported = [str(c) for c in result.get("unsupported") or [] if str(c).strip()]
+            corrected = str(result.get("corrected", "")).strip()
+        except Exception as e:
+            print(f"  (could not check the draft against your resume: {e}; not using it)")
+            return None
+        if not unsupported:
+            return draft
+        print(f"  (self-check removed {len(unsupported)} claim(s) your resume doesn't support)")
+        return corrected or None

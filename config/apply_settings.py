@@ -27,11 +27,11 @@ ENABLED_SITES = {
 GENERIC_AUTO_ADVANCE = True   # click Next/Continue on its own when nothing on the page needs you
 GENERIC_MAX_STEPS = 10        # most pages to walk through on one application
 
-AUTO_FIND_LINKS = True
+AUTO_FIND_LINKS = False
 FIND_LINKS_MAX = 25   # most LinkedIn pages to read per run
 
 LINKEDIN_CLICK_APPLY = True      # opt-in; set False to turn it off
-LINKEDIN_CLICK_MAX = 100          # most LinkedIn postings to click through per run
+LINKEDIN_CLICK_MAX = 10          # most LinkedIn postings to click through per run
 LINKEDIN_CLICK_DELAY = (8, 20)   # random pause in seconds between postings
 CHECK_STILL_OPEN = True
 WORKDAY_AUTO_ADVANCE = True
@@ -52,6 +52,7 @@ LEARNED_ANSWERS_FILE = PROJECT_DIR / "data" / "learned_answers.json"  # answers 
 ASK_ABOUT_UNKNOWN = True   # True = stop and ask in the terminal when a question has no answer rule
 DRAFT_FREE_TEXT = True     # True = the local model drafts answers to long "why us?" style questions
 FREE_TEXT_MAX_WORDS = 120  # length limit for those drafts
+DRAFT_SELF_CHECK = True    # True = the model checks each draft against your resume and removes claims the resume does not support
 
 from config.profile_loader import apply_overrides  # noqa: E402
 apply_overrides(globals())

@@ -6,7 +6,8 @@ against the question's label. The FIRST rule that matches wins, so specific rule
 An answer can be:
   "text"            used as is. These placeholders are filled from resume.json:
                     {first} {last} {full} {legal_name} {email} {phone} {phone_national}
-                    {city} {state} {location} {linkedin_url} {github_url} {gitlab_url} {availability} {work_authorization}
+                    {city} {state} {address} {zip} {location} {linkedin_url} {github_url} {gitlab_url} {availability} {work_authorization}
+                    {recent_title} {recent_employer}
                     {gender} {race_ethnicity} {veteran_status} {disability_status} {nationality}
                     {sexual_orientation} {transgender}
   ["a", "b"]        for dropdowns and radio buttons: the first of these that matches an option
@@ -34,8 +35,12 @@ ANSWER_RULES = [
     (r"gitlab", "{gitlab_url}"),
     (r"website|portfolio|personal site", "{github_url}"),
     (r"\bcity\b", "{city}"),
-    (r"\bstate\b|province", "{state}"),
-    (r"zip|postal", ""),
+    (r"address (line )?2|\bapt\b|apartment|\bsuite\b", ""),     # second address line: left blank
+    (r"street|address", "{address}"),                          # "email address" is caught by the e-mail rule above
+    (r"^\s*states?\b|\bstate\b|province", "{state}"),
+    (r"zip|postal", "{zip}"),
+    (r"(recent|current|latest|last) (job )?(title|position|role)", "{recent_title}"),
+    (r"(recent|current|latest|last) (employer|company)", "{recent_employer}"),
     (r"current location|where are you (located|based)|(?<!re)location", "{location}"),
     (r"country", ["United States", "United States of America", "USA", "US"]),
 

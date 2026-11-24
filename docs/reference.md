@@ -26,7 +26,7 @@ for example `python -m tools.show_jobs`. Only `main.py` and `apply_jobs.py` run 
 ### `resume.json`
 
 ```
-name, contact {email, phone, location, linkedin, github, gitlab}, work_authorization, availability,
+name, contact contact {email, phone, location, address, zip, linkedin, github}, work_authorization, availability,
 self_identification {gender, race_ethnicity, veteran_status, disability_status, nationality, sexual_orientation, transgender},
 summary,
 skills [...], certifications [{name, date, credential_id | url}], education [{degree, school, years}],

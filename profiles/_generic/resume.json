@@ -6,6 +6,8 @@
     "email": "you@example.com",
     "phone": "555-555-5555",
     "location": "City, ST",
+    "address": "",
+    "zip": "",
     "github": "",
     "gitlab": ""
   },
@@ -25,6 +27,9 @@
   "skills": ["First skill", "Second skill"],
   "certifications": [
     {"name": "Certification name", "date": "Month Year", "credential_id": ""}
+  ],
+  "licenses": [
+    {"name": "License name", "state": "", "expires": ""}
   ],
   "education": [
     {"degree": "Degree, Major", "school": "School name", "years": "Start - End"}

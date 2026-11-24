@@ -5,12 +5,9 @@ jobs.csv
 *.sqlite
 archive/
 backup_before_fix_imports_*.zip
-profiles/*/resume.json
-!profiles/_generic/resume.json
-profiles/*/applications/
-profiles/lomita-software
-profiles/*/applications.csv
-profiles/*/applications.xlsx
+profiles/*
+!profiles/_generic/
+
 
 # Python
 __pycache__/
