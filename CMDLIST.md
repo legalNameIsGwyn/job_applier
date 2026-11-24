@@ -8,10 +8,7 @@ Only `main.py` and `apply_jobs.py` run as scripts. Everything in `tools\`, `core
 runs as a module: `python -m tools.summary`.
 
 ## Choosing a profile
-Every command takes `--profile NAME`. Or pick one for the whole PowerShell window:
-
-```powershell
-$env:JOB_PROFILE = "software"
+Every command takes `--profile NAME`.
 ```
 
 | Command | What it does |

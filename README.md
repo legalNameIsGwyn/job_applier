@@ -70,11 +70,7 @@ password. (`--login indeed` does the same for Indeed.)
 
 ## Everyday use
 
-Pick the profile once per PowerShell window, or pass `--profile NAME` to any command:
-
-```powershell
-$env:JOB_PROFILE = "software"
-```
+Every command uses DEFAULT_PROFILE (config/settings.py) unless you add `--profile NAME` to it.
 
 **Semi-auto (default): the program scrapes, scores, works out compatibility and makes documents; you apply by hand.**
 
@@ -141,7 +137,7 @@ profiles\
 data\                  shared: the database, backups, reports, learned_answers.json
 ```
 
-- **Choosing one:** `--profile NAME` on the command line, the `JOB_PROFILE` environment variable, or `DEFAULT_PROFILE`
+- **Choosing one:** `--profile NAME` on the command line, the `JOB_PROFILE` or `DEFAULT_PROFILE`
   in `config/settings.py`. Every command takes `--profile`.
 - **Managing them:**
   ```powershell

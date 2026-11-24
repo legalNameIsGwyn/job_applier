@@ -5,7 +5,8 @@
     profiles/<name>/applications/   its generated resumes and cover letters
 
 The active profile is chosen once, while the config files load, from (first match wins):
-    --profile NAME on the command line   |   the JOB_PROFILE environment variable   |   DEFAULT_PROFILE
+    --profile NAME on the command line   |   DEFAULT_PROFILE (config/settings.py)
+Environment variables are NOT used, so a leftover value in a PowerShell window can't change the profile.
 Every config file ends with two lines that call apply_overrides(globals()), so by the time any other
 code does `from config.settings import SEARCH_TERMS` the profile's value is already in place.
 
@@ -87,7 +88,9 @@ def default_name() -> str:
 
 
 def requested_name() -> str | None:
-    """The profile asked for on the command line or in the environment (None = use the default)."""
+    """The profile asked for with --profile on the command line (None = use DEFAULT_PROFILE).
+
+    The one exception is internal: tools/profile.py sets JOB_PROFILE=_defaults to load no profile at all."""
     if os.environ.get("JOB_PROFILE") == DEFAULTS:
         return DEFAULTS
     argv = sys.argv[1:]
@@ -96,7 +99,7 @@ def requested_name() -> str | None:
             return argv[i + 1]
         if arg.startswith("--profile="):
             return arg.split("=", 1)[1]
-    return os.environ.get("JOB_PROFILE") or None
+    return None
 
 
 @lru_cache(maxsize=1)

@@ -1,12 +1,11 @@
 """Engine setup, sessions and the active profile.
 
 SQLite ignores foreign keys unless they are switched on for every connection.
-The active profile is the one the config files loaded (--profile, JOB_PROFILE or DEFAULT_PROFILE);
+The active profile is the one the config files loaded (--profile or DEFAULT_PROFILE);
 select_profile checks it against the database and makes sure the database has a row for it.
 A profile exists when profiles/<name>/profile.py exists; its database row is added on first use.
 """
 
-import os
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine, event, select
@@ -100,7 +99,6 @@ def active_profile_name() -> str:
 def set_active_profile(name: str) -> None:
     global _active_name
     _active_name = name
-    os.environ["JOB_PROFILE"] = name   # parallel apply windows inherit this
 
 
 def current_profile_id(session) -> int:
@@ -121,7 +119,7 @@ def select_profile(name: str | None = None, db_path=DB_PATH) -> str:
     name = name or ACTIVE_PROFILE
     if ACTIVE_PROFILE == "_defaults":
         raise SystemExit("[PROFILE] This command needs a real profile, but none was loaded. "
-                         "Run it without JOB_PROFILE=_defaults, or pass --profile NAME.")
+                         "Pass --profile NAME, or set DEFAULT_PROFILE in config/settings.py.")
     if name != ACTIVE_PROFILE:
         raise SystemExit(f"[PROFILE] The settings were loaded for '{ACTIVE_PROFILE}', not '{name}'. "
                          "Type the full option --profile NAME (argparse abbreviations like --prof aren't seen by the config loader).")

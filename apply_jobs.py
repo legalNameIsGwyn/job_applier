@@ -41,12 +41,12 @@ import config.apply_settings as _cfg
 from config.settings import COVER_LETTER_FILENAME, DB_PATH, RESUME_FILENAME, MIN_SCORE
 from db.queries import clear_missing_link_markers, get_candidates   # get_candidates: also imported by tools/summary.py
 from db.repo import init_db, record_application, set_apply_url
-from db.session import add_profile_arguments, apply_profile_arguments
+from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 from applying.form_filler import fill_form, open_application
 from applying.fill_report import save_fill_report
 from core.job_status import check_open, closed_in_text
-from core.scorer import load_resume
-from core.console import decision, fmt_score, job_head, step, tag
+from core.scorer import MODEL, load_resume
+from core.console import banner, decision, fmt_score, job_head, step, tag
 
 # Optional settings (defaults apply if config/apply_settings.py doesn't have them yet)
 GENERIC_AUTO_ADVANCE = getattr(_cfg, "GENERIC_AUTO_ADVANCE", True)
@@ -336,6 +336,13 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
     tag("APPLY", f"Opened {done} application(s).")
 
 
+def show_banner(mode: str, min_score) -> None:
+    """The same header main.py prints, so you can see which profile this run loaded."""
+    from datetime import datetime
+    banner(active_profile_name(), mode, MODEL, load_resume().get("name", "unknown"), min_score,
+           datetime.now().strftime("%a %Y-%m-%d %H:%M"), score_label="apply")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fill job applications in a browser. Never submits.")
     parser.add_argument("--top", type=int, default=APPLY_MAX_PER_RUN, help="most jobs to open this run")
@@ -353,6 +360,7 @@ if __name__ == "__main__":
     add_profile_arguments(parser)
     args = parser.parse_args()
     apply_profile_arguments(args)
+    show_banner("FULL-AUTO", args.min_score)
 
     if args.login:
         login(args.login)

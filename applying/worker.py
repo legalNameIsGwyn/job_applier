@@ -71,8 +71,9 @@ def _read_status(path: Path) -> dict:
 
 def _spawn(spec: Path):
     """Start one worker in a NEW console window (Windows)."""
-    return subprocess.Popen([sys.executable, "-m", "applying.worker", str(spec)], cwd=str(PROJECT_DIR),
-                            creationflags=subprocess.CREATE_NEW_CONSOLE)
+    from db.session import active_profile_name   # the new window must load the same profile as this one
+    return subprocess.Popen([sys.executable, "-m", "applying.worker", str(spec), "--profile", active_profile_name()],
+                            cwd=str(PROJECT_DIR), creationflags=subprocess.CREATE_NEW_CONSOLE)
 
 
 def launch_all(ready: list, parallel: int, prepare=None, poll: float = 2.0, spawn=None) -> list[dict]:
@@ -178,6 +179,12 @@ def worker_main(spec_path: str) -> int:
         _write_status(status_file, state=state, text=text)
 
     _set_title(f"[{n}/{total}] {job['company'][:30]}")
+    try:   # same header as the main window, so each window shows which profile it loaded
+        import apply_jobs as _aj
+        from config.settings import MIN_SCORE
+        _aj.show_banner(f"FULL-AUTO {n}/{total}", MIN_SCORE)
+    except Exception as e:
+        print(f"  (could not show the header: {e})")
     print(f"{'=' * 60}\n[{n}/{total}] {job['title']} - {job['company']}  (score {job['match_score']:g})\n  {link}\n{'=' * 60}")
     status("working", "starting a browser window")
 
@@ -255,6 +262,6 @@ def worker_main(spec_path: str) -> int:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if len(sys.argv) < 2:    # python -m applying.worker <spec file> --profile NAME
         sys.exit("This is started by  python apply_jobs.py --parallel N ; it is not run by hand.")
     sys.exit(worker_main(sys.argv[1]))

@@ -37,7 +37,8 @@ def gather(days: float = SUMMARY_DAYS, top: int = SUMMARY_TOP, min_score: float 
             "generated": datetime.now().strftime("%Y-%m-%d %H:%M")}
     data["new_by_status"] = status_counts(days, db_path)
     data["total_by_status"] = status_counts(None, db_path)
-    data["top_new"] = get_jobs(top, "top", min_score=min_score, days=days, include_zero=False, db_path=db_path)
+    data["top_new"] = get_jobs(top, "top", min_score=min_score, days=days, include_zero=False,
+                             exclude_handled=True, db_path=db_path)
     data["failed"] = data["total_by_status"].get("scoring_failed", 0)
     data["applications"] = application_counts(db_path)
     data["unfinished"] = unfinished_applications(10, db_path)

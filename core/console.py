@@ -127,11 +127,11 @@ def cmd(text: str) -> str:
 # ------------------------------------------------------------------------------------ building blocks
 
 
-def banner(profile: str, mode: str, model: str, name: str, min_score, when: str) -> None:
+def banner(profile: str, mode: str, model: str, name: str, min_score, when: str, score_label: str = "docs") -> None:
     """The slim header at the top of a run: a title, then two short rows of settings."""
     rows = [
         [("profile", profile), ("mode", mode), ("model", model)],
-        [("resume", name), ("docs", f"{min_score:g}+"), ("started", when)],
+        [("resume", name), (score_label, f"{min_score:g}+"), ("started", when)],
     ]
     dot = paint("  ·  ", "gray")
     print()

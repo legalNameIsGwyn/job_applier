@@ -10,6 +10,8 @@ from core.csv_log import handled_urls
 from db.models import Application, Job, JobScore, utcnow
 from db.session import current_profile_id, session_scope
 
+HANDLED_STATUSES = ("applied", "skipped", "closed")   # jobs in these states aren't shown as new matches
+
 
 def _since(days) -> datetime:
     return utcnow() - timedelta(days=float(days))
@@ -32,8 +34,11 @@ def _on_score(pid):
 
 def get_jobs(n: int = 10, order: str = "top", min_score: float | None = None, max_score: float | None = None,
              days: float | None = None, include_zero: bool = True, failed_only: bool = False,
-             db_path: str = DB_PATH) -> list[dict]:
-    """Top or bottom N jobs the active profile scored. Duplicates are left out."""
+             exclude_handled: bool = False, db_path: str = DB_PATH) -> list[dict]:
+    """Top or bottom N jobs the active profile scored. Duplicates are left out.
+
+    exclude_handled also leaves out jobs you applied to, skipped or found closed, and jobs with a status in the CSV.
+    """
     if order not in ("top", "bottom"):
         raise ValueError("order must be 'top' or 'bottom'")
     with session_scope(db_path) as s:
@@ -52,13 +57,22 @@ def get_jobs(n: int = 10, order: str = "top", min_score: float | None = None, ma
         if days is not None:
             q = q.where(JobScore.scored_at >= _since(days))
         col = JobScore.match_score
-        q = q.order_by(col.desc() if order == "top" else col.asc(), JobScore.scored_at.desc()).limit(int(n))
+        q = q.order_by(col.desc() if order == "top" else col.asc(), JobScore.scored_at.desc())
+        if exclude_handled:
+            done = exists().where(Application.job_id == Job.id, Application.status.in_(HANDLED_STATUSES))
+            q = q.where(~done)          # no .limit() yet: the CSV check below can remove more, then we cut to n
+        else:
+            q = q.limit(int(n))
+        rows = s.execute(q).all()
+        if exclude_handled:
+            csv_done = handled_urls()
+            rows = [(j, sc) for j, sc in rows if j.job_url not in csv_done][:int(n)]
         return [dict(id=j.id, title=j.title, company=j.company, location=j.location, job_url=j.job_url,
                      match_score=sc.match_score, compat_pct=sc.compat_pct, compat_detail_pct=sc.compat_detail_pct,
                      compat_missing=_json_list(sc.compat_missing), compat_capped=bool(sc.compat_capped),
                      matched_skills=_json_list(sc.matched_skills),
                      gaps=_json_list(sc.gaps), description=j.description, salary=j.salary, apply_url=j.apply_url,
-                     scraped_at=str(j.scraped_at)) for j, sc in s.execute(q).all()]
+                     scraped_at=str(j.scraped_at)) for j, sc in rows]
 
 
 def get_job_by_url(url: str, db_path: str = DB_PATH) -> dict | None:
