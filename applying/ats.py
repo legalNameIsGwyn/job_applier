@@ -40,7 +40,9 @@ GENERIC_SITES = {"icims", "taleo", "successfactors", "smartrecruiters", "workabl
 # (typically LinkedIn Easy Apply). Distinguishes "checked, none" from "never checked" (empty).
 NO_LINK = "none"
 CLICK_CHECKED = "none:clicked"   # also tried by clicking Apply in the logged-in browser; still no link
-NO_LINK_MARKERS = (NO_LINK, CLICK_CHECKED)
+EASY_APPLY = "none:easy"          # LinkedIn's own Easy Apply form: there is no employer link to find
+NO_LINK_MARKERS = (NO_LINK, CLICK_CHECKED, EASY_APPLY)
+RECHECKABLE_MARKERS = (NO_LINK, CLICK_CHECKED)   # --recheck-links searches these again; Easy Apply is a final answer
 
 # Sites with a filler built so far.
 IMPLEMENTED = {"greenhouse", "lever", "ashby", "workday"} | GENERIC_SITES

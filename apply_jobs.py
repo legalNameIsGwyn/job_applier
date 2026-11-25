@@ -30,11 +30,11 @@ from pathlib import Path
 import db.tracking as tracking
 from applying.answering import Answerer
 from documents.application_maker import create_application, job_folder, name_fields, render_name
-from applying.ats import (CLICK_CHECKED, GENERIC_SITES, IMPLEMENTED, NO_LINK, NO_LINK_MARKERS, application_url, detect_ats,
+from applying.ats import (EASY_APPLY, GENERIC_SITES, IMPLEMENTED, NO_LINK, NO_LINK_MARKERS, RECHECKABLE_MARKERS, application_url, detect_ats,
                  site_key)
 from config.apply_settings import (
     APPLY_MAX_PER_RUN, APPLY_WINDOW_DAYS, AUTO_FIND_LINKS, BROWSER_PROFILE_DIR, ENABLED_SITES,
-    CHECK_STILL_OPEN, FIND_LINKS_MAX, HEADLESS, LINKEDIN_CLICK_APPLY, LINKEDIN_CLICK_DELAY, LINKEDIN_CLICK_MAX, PAGE_TIMEOUT_MS,
+    CHECK_STILL_OPEN, FIND_LINKS_MAX, HEADLESS, LINKEDIN_CLICK_APPLY, LINKEDIN_CLICK_ATTEMPTS, LINKEDIN_CLICK_DELAY, LINKEDIN_CLICK_MAX, PAGE_TIMEOUT_MS,
     SLOW_MO_MS, WORKDAY_AUTO_ADVANCE, WORKDAY_MAX_STEPS,
 )
 import config.apply_settings as _cfg
@@ -66,13 +66,24 @@ def target_for(job: dict) -> tuple[str | None, str | None, str | None]:
     Uses the employer's own link (apply_url) when there is one; otherwise the job-board link,
     which only works if that link itself is a Greenhouse / Lever / Ashby page.
     """
-    if job.get("apply_url") in NO_LINK_MARKERS:
-        return job["job_url"], "linkedin", ("no employer application link found (it may be LinkedIn Easy Apply); "
-                                            "use --set-url if you have the link")
+    marker = job.get("apply_url")
+    if marker in NO_LINK_MARKERS:
+        site = detect_ats(job["job_url"])
+        if marker == EASY_APPLY:
+            why = ("LinkedIn Easy Apply: LinkedIn's own form, which isn't supported yet "
+                   "(use --set-url if you find the employer's link)")
+        elif site == "indeed":
+            why = ("Indeed job with no employer link: Indeed's own forms aren't supported yet "
+                   "(use --set-url if you find the employer's link)")
+        else:
+            why = "no employer application link found yet (use --set-url if you have it, or --recheck-links to search again)"
+        return job["job_url"], site, why
     link = job.get("apply_url") or job["job_url"]
     ats = detect_ats(link)
     if ats == "linkedin" and not job.get("apply_url"):
         return link, ats, "employer link not looked up yet (raise LINKEDIN_CLICK_MAX, or run again)"
+    if ats == "indeed" and not marker:
+        return link, ats, "Indeed job: employer link not found (Indeed link-finding isn't built yet; use --set-url)"
     if ats is None:
         return link, None, "not a supported application site (use --set-url to give the employer's link)"
     if ats == "jobboard":
@@ -144,10 +155,11 @@ def resolve_via_linkedin(jobs: list[dict]) -> int:
     with sync_playwright() as p:
         context = _open_profile(p)
         try:
-            results = resolve_links(context, [j["job_url"] for j in todo], LINKEDIN_CLICK_DELAY)
+            results = resolve_links(context, [j["job_url"] for j in todo], LINKEDIN_CLICK_DELAY,
+                                    attempts=LINKEDIN_CLICK_ATTEMPTS)
         finally:
             context.close()
-    found = closed = 0
+    found = closed = retry_later = 0
 
     for job in todo:
         outcome, url = results.get(job["job_url"], ("login", None))
@@ -160,11 +172,15 @@ def resolve_via_linkedin(jobs: list[dict]) -> int:
                                note="LinkedIn says it is no longer taking applications")
             jobs.remove(job)   # drop it from this run
             closed += 1
-        elif outcome in ("easy", "unknown"):  # remember we tried, so it isn't clicked again every run
-            set_apply_url(job["job_url"], CLICK_CHECKED)
-            job["apply_url"] = CLICK_CHECKED
+        elif outcome == "easy":    # LinkedIn's own form: final answer, no employer link exists
+            set_apply_url(job["job_url"], EASY_APPLY)
+            job["apply_url"] = EASY_APPLY
+        elif outcome in ("unknown", "error"):   # still failing after every try: left unmarked for the next run
+            retry_later += 1
     tag("APPLY", f"Found {found} employer link(s) through LinkedIn."
-          + (f" {closed} posting(s) are closed and were dropped." if closed else ""))
+          + (f" {closed} posting(s) are closed and were dropped." if closed else "")
+          + (f" {retry_later} posting(s) didn't work after {LINKEDIN_CLICK_ATTEMPTS} tries and will be tried again next run."
+             if retry_later else ""))
     return found
 
 
@@ -185,7 +201,7 @@ def login(site: str = "linkedin") -> None:
 
 def forget_missing_links(db_path: str = DB_PATH) -> int:
     """Clear every "none" marker so those jobs are searched for again."""
-    return clear_missing_link_markers(NO_LINK_MARKERS, db_path)
+    return clear_missing_link_markers(RECHECKABLE_MARKERS, db_path)
 
 
 # ----------------------------------------------------------------------------- one job

@@ -216,15 +216,27 @@ def resolve_apply_link(context, job_url: str) -> tuple[str, str | None]:
         page.close()
 
 
-def resolve_links(context, job_urls: list[str], delay=(8, 20), sleep=time.sleep) -> dict[str, tuple[str, str | None]]:
-    """{job_url: (outcome, url)} for each job. Stops at the first login wall."""
+def resolve_links(context, job_urls: list[str], delay=(8, 20), sleep=time.sleep,
+                  attempts: int = 3) -> dict[str, tuple[str, str | None]]:
+    """{job_url: (outcome, url)} for each job. Stops at the first login wall.
+
+    A posting that errors out or gives "unknown" is tried up to `attempts` times, with a short pause between tries.
+    If it still fails, its outcome is "unknown" (or "error"), which the caller leaves for the next run.
+    """
     results = {}
     for n, job_url in enumerate(job_urls, start=1):
-        try:
-            outcome, url = resolve_apply_link(context, job_url)
-        except Exception as e:
-            tag("LINKEDIN", f"{job_url}: {type(e).__name__}: {e}")
-            continue
+        outcome, url = "error", None
+        for attempt in range(1, max(1, attempts) + 1):
+            try:
+                outcome, url = resolve_apply_link(context, job_url)
+            except Exception as e:
+                tag("LINKEDIN", f"{job_url}: {type(e).__name__}: {e}")
+                outcome, url = "error", None
+            if outcome not in ("unknown", "error"):
+                break
+            if attempt < attempts:
+                tag("LINKEDIN", f"Try {attempt} of {attempts} didn't work; trying again...")
+                sleep(random.uniform(3, 6))
         results[job_url] = (outcome, url)
         if outcome == "login":
             tag("LINKEDIN", "Not logged in (or LinkedIn wants verification). "

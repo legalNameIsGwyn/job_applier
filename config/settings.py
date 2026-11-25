@@ -87,7 +87,7 @@ STOP_FETCH_THEN_SCORE = True   # True = score the descriptions already downloade
 MAKE_DOCS = True          # create a resume + cover letter automatically after scoring
 MAX_DOCS_PER_RUN = None     # most NEW jobs to make documents for per run
 DOC_WINDOW_DAYS = 7       # only consider jobs scraped in the last N days
-MAX_PROJECTS = 5          # projects shown on the resume
+MAX_PROJECTS = 4          # projects shown on the resume
 TAILOR_MAX_SKILLS = 12    # skills the model may move to the front (all skills are still listed)
 FONT = "Calibri"
 COVER_LETTER_GREETING = "Good day,"
@@ -112,7 +112,7 @@ DEFAULT_MODEL_WEIGHT = 0.7      # before you rate any jobs: 70% model score, 30%
 MIN_RATINGS = 50               # fewest hand ratings needed to tune the scores
 FULL_TRUST_RATINGS = 100        # below this many ratings the fit is pulled toward the defaults (fully trusted at this many)
 RATING_BATCH_SIZE = 20          # jobs shown per `python rating.py`
-RATING_DESC_CHARS = 900         # how much of each description is shown while rating
+RATING_DESC_CHARS = 2000         # how much of each description is shown while rating
 RATING_DESCRIPTION = "summary"  # "summary", "excerpt" (first RATING_DESC_CHARS characters) or "full"
 RATING_SUMMARY_BULLETS = 3      # bullets per section
 RATING_SHOW_MODEL_NOTES = True  # show the model's matched skills and gaps
@@ -122,7 +122,7 @@ SHOW_DEFAULT_COUNT = 10         # rows printed by `python show_jobs.py`
 
 SUMMARY_AFTER_RUN = True      # print the summary at the end of main.py
 SUMMARY_DAYS = 1              # how far back "new" reaches
-SUMMARY_TOP = 10              # best matches listed
+SUMMARY_TOP = 5              # best matches listed
 SUMMARY_DIR = PROJECT_DIR / "data" / "reports"   # optional: where --html reports are saved
 
 # ------------------------------------------------------------------- rating
@@ -140,7 +140,7 @@ MAX_BRIDGE_LINES = 5      # bridge lines proposed per job
 # Tailoring mode: "auto", "standard", "bridge" or "boilerplate".
 # auto picks one per job from its compatibility percentage.
 TAILOR_MODE = "auto"
-TAILOR_AUTO_BRIDGE_BELOW = 70       # compatibility under this uses bridge
+TAILOR_AUTO_BRIDGE_BELOW = 60       # compatibility under this uses bridge
 TAILOR_AUTO_BOILERPLATE_BELOW = 30  # compatibility under this uses boilerplate
 
 # Console look: None = automatic (colors only in a terminal, symbols only if it can show them)

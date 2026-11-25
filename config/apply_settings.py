@@ -7,7 +7,7 @@ and then STOPS. It never clicks Submit: you read the form, fix anything wrong, a
 from config.settings import PROJECT_DIR
 
 # ------------------------------------------------------------------- which jobs
-APPLY_MAX_PER_RUN = 1      # most jobs to open per run
+APPLY_MAX_PER_RUN = 10      # most jobs to open per run
 APPLY_WINDOW_DAYS = 7     # only jobs scraped in the last N days
 
 # ------------------------------------------------------------- which sites to fill
@@ -32,8 +32,10 @@ AUTO_FIND_LINKS = False
 FIND_LINKS_MAX = 25   # most LinkedIn pages to read per run
 
 LINKEDIN_CLICK_APPLY = True      # opt-in; set False to turn it off
-LINKEDIN_CLICK_MAX = 10          # most LinkedIn postings to click through per run
+LINKEDIN_CLICK_MAX = 15         # most LinkedIn postings to click through per run
+LINKEDIN_CLICK_ATTEMPTS = 3      # tries per posting before it is left for the next run
 LINKEDIN_CLICK_DELAY = (8, 20)   # random pause in seconds between postings
+LINKEDIN_CLICK_ATTEMPTS = 3      # tries per posting before it is left for the next run
 CHECK_STILL_OPEN = True
 WORKDAY_AUTO_ADVANCE = True
 WORKDAY_MAX_STEPS = 12
@@ -42,7 +44,7 @@ BROWSER = "chromium"   # "firefox" or "chromium"
 BROWSER_PROFILE_DIR = PROJECT_DIR / "browser_profile"   # keeps your logins between runs
 
 # ------------------------------------------------------------ several jobs at once
-PARALLEL_JOBS = 3   # applications open at once, each in its own terminal + browser window (1 = one at a time)
+PARALLEL_JOBS = 1  # applications open at once, each in its own terminal + browser window (1 = one at a time)
 PARALLEL_PROFILE_DIR = PROJECT_DIR / "browser_profile_workers"   # temporary copies of your profile
 HEADLESS = False           # leave False: you need to see and review the form
 SLOW_MO_MS = 0             # slow every browser action by this many ms (try 100 to watch it work)

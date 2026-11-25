@@ -128,8 +128,7 @@ Most jobs come from LinkedIn, which hides the employer's link from logged-out vi
    job on the company's public Greenhouse, Lever or Ashby board and returns nothing when it isn't sure.
 4. **By hand** with `--set-url`.
 
-Whatever it finds is saved once per job. Jobs with no link are marked "none" and not searched again until you run
-`--recheck-links`.
+Whatever it finds is saved once per job. A lookup that fails is tried up to `LINKEDIN_CLICK_ATTEMPTS` times (3), then left for the next run. Easy Apply jobs are marked as such and listed as "can't be filled". Other jobs with no link are marked "none" and not searched again until you run `--recheck-links`.
 
 ### Checks before a job is offered
 
