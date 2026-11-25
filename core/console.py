@@ -52,6 +52,7 @@ TAG_COLORS = {
     "SCRAPER": "cyan", "FILTER": "yellow", "SCORER": "blue", "PIPELINE": "blue", "DEDUPE": "gray",
     "COMPAT": "sky", "DOCS": "magenta", "APPLY": "green", "BRIDGE": "orange", "CSV": "gold",
     "SUMMARY": "white", "TRACK": "pink",
+    "PARKED": "orange"
 }
 
 TAG_COLORS.update({k.upper(): v for k, v in getattr(_settings, "CONSOLE_TAG_COLORS", {}).items()})

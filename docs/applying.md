@@ -102,6 +102,21 @@ Enter (not yet). Because the copies are deleted afterwards, an account you creat
 
 The terminal output is colored like `main.py` (same header and palette). Each filled field shows where its answer came from: green = rule, blue = learned, orange = drafted by the model (read it), gold = answered by you, gray = left blank. Every question for you starts with a gold ▶. Colors turn off when output is piped to a file; change them with `CONSOLE_COLORS` in `config\settings.py`.
 
+### Jobs that need you (parked jobs)
+
+When a job can't go on without you (no Apply button, a sign-in page, a required question with no answer), the
+tool parks it, prints `[PARKED 3/12] Job title - Company: reason`, beeps, and moves on to the next job.
+It never tries to get past a bot check.
+
+| Setting (`config/apply_settings.py`) | What it does |
+|---|---|
+| `PARK_BLOCKED = True` | Park blocked jobs. `False` = pause and ask you in the terminal, as before. |
+| `NOTIFY_BEEP = True` | One short beep when a job is parked (Windows only). |
+
+Code: `applying/blocked.py` (the `Blocked` signal and the park-or-ask decision) and `applying/notify.py`
+(the notifier; add your own handler with `register()`). Status: the building blocks exist; parking itself is wired
+in by the next steps of the full-auto redesign (`claude/full_auto_redesign.md`).
+
 ### Which sites get filled
 
 | Kind | How |

@@ -57,5 +57,9 @@ DRAFT_FREE_TEXT = True     # True = the local model drafts answers to long "why 
 FREE_TEXT_MAX_WORDS = 120  # length limit for those drafts
 DRAFT_SELF_CHECK = True    # True = the model checks each draft against your resume and removes claims the resume does not support
 
+# ------------------------------------------------------------ jobs that need you
+PARK_BLOCKED = True   # True = a job that needs you (sign-in, no Apply button, unknown required question) is parked on a saved list and the run moves on; False = pause and ask you instead
+NOTIFY_BEEP = True    # one short beep when a job is parked (Windows only)
+
 from config.profile_loader import apply_overrides  # noqa: E402
 apply_overrides(globals())
