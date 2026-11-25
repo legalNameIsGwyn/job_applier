@@ -104,6 +104,12 @@ The terminal output is colored like `main.py` (same header and palette). Each fi
 
 ### Jobs that need you (parked jobs)
 
+**What happens to a parked job:** it is saved on the parked list (the `applications` table, status `parked`, with the
+reason and how many times it has parked) and is not offered again in a normal run. A run ends with a PARKED block:
+how many jobs were set aside, why, and how many are waiting in total. Jobs you name with `--url` and the old
+`--parallel` windows ask you in the terminal instead of parking. If a Workday or generic page has fields the tool
+couldn't fill, it stops on that page and hands over to you at the review prompt instead of parking.
+
 When a job can't go on without you (no Apply button, a sign-in page, a required question with no answer), the
 tool parks it, prints `[PARKED 3/12] Job title - Company: reason`, beeps, and moves on to the next job.
 It never tries to get past a bot check.

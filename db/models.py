@@ -113,7 +113,7 @@ class Calibration(Base):
 
 
 class Application(Base):
-    """What happened when you opened a job to apply. status: applied | skipped | opened | closed."""
+    """What happened when you opened a job to apply. status: applied | skipped | opened | closed | parked."""
     __tablename__ = "applications"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -124,6 +124,11 @@ class Application(Base):
     status: Mapped[str] = mapped_column(String)
     note: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # Only for status "parked" (a job that needed you and was set aside; see applying/blocked.py)
+    park_reason: Mapped[str | None] = mapped_column(String)
+    park_detail: Mapped[str | None] = mapped_column(Text)
+    park_tries: Mapped[int] = mapped_column(Integer, default=0)
+    parked_at: Mapped[datetime | None] = mapped_column(DateTime)       # when it was FIRST parked
 
 
 class Tracking(Base):

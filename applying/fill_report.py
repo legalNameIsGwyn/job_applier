@@ -15,6 +15,7 @@ RESULTS = {
     "skipped": "you skipped this job",
     "opened": "left open, not submitted yet",
     "closed": "posting closed",
+    "parked": "parked: it needed you",
     "error": "stopped by an error",
 }
 

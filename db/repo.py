@@ -135,3 +135,30 @@ def record_application(job_url: str, status: str, apply_url: str | None = None,
             app.note = note or app.note
             app.updated_at = utcnow()
         return True
+
+
+def record_parked(job_url: str, reason: str, detail: str = "", apply_url: str | None = None,
+                  ats: str | None = None, db_path: str = DB_PATH) -> bool:
+    """Put a job on the parked list: it needed you (see applying/blocked.py). Parking it again raises park_tries
+    and keeps the time it was first parked. False if the job isn't in the database."""
+    with session_scope(db_path) as s:
+        job_id = s.scalar(select(Job.id).where(Job.job_url == job_url))
+        if job_id is None:
+            return False
+        now = utcnow()
+        app = s.scalar(select(Application).where(Application.job_id == job_id))
+        if app is None:
+            s.add(Application(job_id=job_id, profile_id=current_profile_id(s), apply_url=apply_url, ats=ats,
+                              status="parked", park_reason=reason, park_detail=detail or None,
+                              park_tries=1, parked_at=now))
+        else:
+            if app.status != "parked":
+                app.parked_at = now          # it was handled some other way before; the clock starts now
+            app.status = "parked"
+            app.apply_url = apply_url or app.apply_url
+            app.ats = ats or app.ats
+            app.park_reason = reason
+            app.park_detail = detail or None
+            app.park_tries = (app.park_tries or 0) + 1
+            app.updated_at = now
+        return True

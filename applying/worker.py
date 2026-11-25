@@ -170,6 +170,8 @@ def _copy_profile(src: Path, dst: Path) -> None:
 
 
 def worker_main(spec_path: str) -> int:
+    from applying.blocked import set_parking
+    set_parking(False)   # these windows are for you: ask instead of parking (this file is retired in a later step)
     spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
     job, link, ats = spec["job"], spec["link"], spec["ats"]
     status_file = Path(spec["status_file"])

@@ -13,6 +13,8 @@ nothing on the page needs you) or waits while you fix the page. The final "Submi
 import re
 from urllib.parse import urlsplit, urlunsplit
 
+from applying.blocked import (Blocked, NO_APPLY_BUTTON, NO_CONTINUE, PAGE_ERRORS, SIGN_IN, STUCK, parking_enabled,
+                              stop_or_ask)
 from applying.form_filler import fill_form
 from core.job_status import closed_in_text
 
@@ -135,8 +137,9 @@ def _start_application(page, resume_file, ask) -> None:
             except Exception as e:
                 print(f"  (could not open it: {type(e).__name__})")
         if not _in_application_already(page):
-            ask("\n  Still no Apply button. Click Apply yourself in the browser window "
-                "(leave the page on the sign-in or autofill step), then press Enter here: ")
+            stop_or_ask(NO_APPLY_BUTTON, "\n  Still no Apply button. Click Apply yourself in the browser window "
+                        "(leave the page on the sign-in or autofill step), then press Enter here: ", ask,
+                        detail=urlsplit(page.url).netloc)
 
     autofill = page.locator('[data-automation-id="autofillWithResume"]').or_(
         page.get_by_text(re.compile(r"autofill with resume", re.I))).filter(visible=True)
@@ -173,8 +176,8 @@ def run_application(page, link, answerer, resume_file, letter_file, ask=input, s
     for _ in range(max_steps):
         page.wait_for_timeout(2000)
         if _needs_sign_in(page):
-            ask("\n  Sign in or create your account for this employer in the browser window "
-                "(first time only), then press Enter here: ")
+            stop_or_ask(SIGN_IN, "\n  Sign in or create your account for this employer in the browser window "
+                        "(first time only), then press Enter here: ", ask, detail=urlsplit(page.url).netloc)
             page.wait_for_timeout(2000)
             if _needs_sign_in(page):
                 show("  Still on the sign-in page; stopping. Run again after you are signed in.")
@@ -196,14 +199,21 @@ def run_application(page, link, answerer, resume_file, letter_file, ask=input, s
 
         button = _next_button(page)
         if button is None:
-            reply = ask("  I can't find the Continue button here. Move to the next page yourself, then press Enter "
-                        "(q = stop): ")
+            reply = stop_or_ask(NO_CONTINUE, "  I can't find the Continue button here. Move to the next page yourself, "
+                                "then press Enter (q = stop): ", ask, detail=title)
             if reply.strip().lower().startswith("q"):
                 return "stopped"
             continue
 
         stuck = repeats >= 1
         if report.attention or not auto_advance or stuck:
+            if parking_enabled():
+                if stuck:
+                    raise Blocked(STUCK, title)
+                if report.attention:
+                    show("  Some fields on this page need you. Stopping here: finish this page and the rest of the "
+                         "application in the browser, then submit it yourself.")
+                    return "review"
             why = ("the page didn't change last time" if stuck else
                    "some fields need you" if report.attention else "auto-advance is off")
             reply = ask(f"  Pausing ({why}). Fix this page in the browser, then press Enter to continue "
@@ -219,8 +229,8 @@ def run_application(page, link, answerer, resume_file, letter_file, ask=input, s
         page.wait_for_timeout(2500)
         if _visible(page.locator('[data-automation-id="errorBanner"]')) or re.search(
                 r"errors? found", _body_text(page), re.I):
-            reply = ask("  Workday reports errors on that page. Fix them in the browser, then press Enter "
-                        "(q = stop here): ")
+            reply = stop_or_ask(PAGE_ERRORS, "  Workday reports errors on that page. Fix them in the browser, then "
+                                "press Enter (q = stop here): ", ask, detail=title)
             if reply.strip().lower().startswith("q"):
                 return "stopped"
     show("  Stopped after the maximum number of pages (WORKDAY_MAX_STEPS).")

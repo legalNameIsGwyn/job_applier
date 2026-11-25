@@ -26,10 +26,13 @@ Settings: config/apply_settings.py (which jobs, which sites)   config/answers.py
 
 import argparse
 import re
+from collections import Counter
 from pathlib import Path
 
 import db.tracking as tracking
 from applying.answering import Answerer
+from applying.blocked import Blocked, NO_FORM, parking_enabled, set_parking
+from applying.notify import notify
 from documents.application_maker import create_application, job_folder, name_fields, render_name
 from applying.ats import (EASY_APPLY, GENERIC_SITES, IMPLEMENTED, NO_LINK, NO_LINK_MARKERS, RECHECKABLE_MARKERS, application_url, detect_ats,
                  site_key)
@@ -40,8 +43,8 @@ from config.apply_settings import (
 )
 import config.apply_settings as _cfg
 from config.settings import COVER_LETTER_FILENAME, DB_PATH, RESUME_FILENAME, MIN_SCORE
-from db.queries import clear_missing_link_markers, get_candidates   # get_candidates: also imported by tools/summary.py
-from db.repo import init_db, record_application, set_apply_url
+from db.queries import clear_missing_link_markers, get_candidates, parked_jobs   # get_candidates: also imported by tools/summary.py
+from db.repo import init_db, record_application, record_parked, set_apply_url
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
 from applying.form_filler import fill_form, open_application
 from applying.fill_report import save_fill_report
@@ -255,11 +258,40 @@ def show_result(status: str) -> None:
     decision(RESULT_KINDS.get(status, "skip"), f"{status}: recorded")
 
 
+def park_job(job: dict, link: str, ats: str, blocked: Blocked, number: int, total: int, parked: list) -> None:
+    """Put a job that needs you on the parked list, tell you (terminal line and beep), and remember it for this run's summary."""
+    try:
+        record_parked(job["job_url"], blocked.reason, blocked.detail, apply_url=link, ats=ats)
+    except Exception as e:   # a database hiccup must not stop the run; the job is simply offered again next time
+        note(f"(couldn't save it to the parked list: {e})")
+    parked.append(dict(title=job["title"], company=job["company"], reason=blocked.reason, detail=blocked.detail))
+    notify(dict(number=number, total=total, title=job["title"], company=job["company"], state="parked",
+                reason=str(blocked), url=link))
+
+
+def show_parked_summary(parked: list[dict]) -> None:
+    """The closing block of a run: what was set aside this run and why, and how many jobs wait on the list in all."""
+    if not parked:
+        return
+    print()
+    print(section("PARKED"))
+    reasons = Counter(p["reason"] for p in parked)
+    tag("APPLY", f"{len(parked)} job(s) parked this run: " + ", ".join(f"{n} {r}" for r, n in reasons.most_common()), "warn")
+    for p in parked:
+        decision("warn", f"{p['title']} - {p['company']}: {p['reason']}" + (f" ({p['detail'][:80]})" if p["detail"] else ""))
+    try:
+        waiting = len(parked_jobs())
+    except Exception:
+        waiting = len(parked)
+    note(f"{waiting} job(s) are waiting on the parked list in total.")
+
+
 # ----------------------------------------------------------------------------- one job
 
 
 def apply_to_job(context, job: dict, url: str, ats: str, ask=ask_you, answerer=None) -> str:
-    """Fill one application and wait for you. Returns applied | skipped | opened | closed."""
+    """Fill one application and wait for you. Returns applied | skipped | opened | closed.
+    Raises Blocked when the job needs you and parking is on (applying/blocked.py); run() parks it."""
     resume = load_resume()
     resume_file, letter_file = document_files(job)
     answerer = answerer or Answerer(resume, job, ask=ask)
@@ -293,9 +325,12 @@ def apply_to_job(context, job: dict, url: str, ats: str, ask=ask_you, answerer=N
                 body = page.inner_text("body", timeout=5000)
             except Exception:
                 body = ""
-            if closed_in_text(body[:20000]) and frame is None:
+            closed = closed_in_text(body[:20000]) and frame is None
+            if closed:
                 warn(CLOSED_TEXT)
             if frame is None:
+                if parking_enabled() and not closed:
+                    raise Blocked(NO_FORM)
                 warn("Couldn't find the application form on that page. It's open in the browser for you.")
             else:
                 if closed_in_text(body[:3000]):
@@ -305,6 +340,9 @@ def apply_to_job(context, job: dict, url: str, ats: str, ask=ask_you, answerer=N
                     "  Then type  a = I submitted it,  s = skip this job for good,  Enter = not yet: ")
         reply = reply.strip().lower()
         result = "applied" if reply.startswith("a") else "skipped" if reply.startswith("s") else "opened"
+    except Blocked:
+        result = "parked"
+        raise
     finally:
         page.close()
         saved = save_fill_report(job_folder(job), job, url, ats, pages_filled, result)
@@ -334,6 +372,8 @@ def print_report(report) -> None:
 
 def run(limit, min_score, days, include_opened=False, url=None, list_only=False, parallel=PARALLEL_JOBS) -> None:
     init_db()
+    if url:   # you named this job yourself, so you are here: ask instead of parking (this is also how you sign in to an employer's Workday)
+        set_parking(False)
     jobs = get_candidates(min_score, days, include_opened, url)
     if not jobs:
         tag("APPLY", "No jobs to apply to (score too low, nothing recent, or all already handled).")
@@ -368,6 +408,7 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
 
     if parallel > 1 and len(ready[:limit]) > 1:
         from applying.worker import launch_all
+        set_parking(False)   # the separate windows ask you instead of parking
         launch_all(ready[:limit], parallel, prepare=document_files)
         return
 
@@ -378,10 +419,12 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
         return
 
     done = 0
+    batch = ready[:limit]
+    parked = []   # jobs set aside this run
     with sync_playwright() as p:
         context = _open_profile(p)
         try:
-            for job, link, ats in ready[:limit]:
+            for number, (job, link, ats) in enumerate(batch, 1):
                 step(None, "APPLYING", right=f"score {fmt_score(job['match_score'])}")
                 print()
                 job_head(job["title"], job["company"], link)
@@ -391,6 +434,9 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
                     print()
                     tag("APPLY", "Stopped.")
                     break
+                except Blocked as b:
+                    park_job(job, link, ats, b, number, len(batch), parked)
+                    continue
                 except Exception as e:
                     decision("bad", f"failed: {e}")
                     continue
@@ -406,6 +452,7 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
             context.close()
     print()
     tag("APPLY", f"Opened {done} application(s).")
+    show_parked_summary(parked)
 
 
 def show_banner(mode: str, min_score) -> None:

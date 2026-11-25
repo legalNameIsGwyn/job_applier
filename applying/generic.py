@@ -16,7 +16,9 @@ form stays open in the browser.
 """
 
 import re
+from urllib.parse import urlsplit
 
+from applying.blocked import Blocked, NO_FORM, SIGN_IN, STUCK, parking_enabled, stop_or_ask
 from core.job_status import closed_in_text
 from applying.form_filler import FORM_FIELDS, SCAN_JS, fill_form
 
@@ -136,8 +138,9 @@ def run_application(page, link, answerer, resume_file, letter_file, ask=input, s
         page.wait_for_timeout(1500)
 
         if needs_sign_in(page):
-            reply = ask("\n  This site wants you to sign in or create an account. Do that in the browser window "
-                        "(first time only), then press Enter here (q = stop): ")
+            reply = stop_or_ask(SIGN_IN, "\n  This site wants you to sign in or create an account. Do that in the "
+                                "browser window (first time only), then press Enter here (q = stop): ", ask,
+                                detail=urlsplit(page.url).netloc)
             if reply.strip().lower().startswith("q"):
                 return "stopped"
             page.wait_for_timeout(2500)
@@ -148,8 +151,8 @@ def run_application(page, link, answerer, resume_file, letter_file, ask=input, s
 
         frame = find_form_frame(page) or frame
         if frame is None:
-            reply = ask("  I can't find a form on this page. Get to the application form in the browser, "
-                        "then press Enter (q = stop): ")
+            reply = stop_or_ask(NO_FORM, "  I can't find a form on this page. Get to the application form in the "
+                                "browser, then press Enter (q = stop): ", ask, detail=urlsplit(page.url).netloc)
             if reply.strip().lower().startswith("q"):
                 return "noform"
             frame = find_form_frame(page)
@@ -174,6 +177,13 @@ def run_application(page, link, answerer, resume_file, letter_file, ask=input, s
             return "review"
 
         if report.attention or not auto_advance or stuck:
+            if parking_enabled():
+                if stuck:
+                    raise Blocked(STUCK, f"page {step}")
+                if report.attention:
+                    show("  Some fields on this page need you. Stopping here: finish this page and the rest of the "
+                         "application in the browser, then submit it yourself.")
+                    return "review"
             why = ("the page didn't change last time" if stuck else
                    "some fields need you" if report.attention else "auto-advance is off")
             reply = ask(f"  Pausing ({why}). Fix this page in the browser, then press Enter to go on "

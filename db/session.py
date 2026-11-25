@@ -60,6 +60,12 @@ _NEW_COLUMNS = {
         "compat_missing": "TEXT DEFAULT '[]'",
         "compat_capped": "INTEGER DEFAULT 0",
     },
+    "applications": {
+        "park_reason": "TEXT",
+        "park_detail": "TEXT",
+        "park_tries": "INTEGER DEFAULT 0",
+        "parked_at": "DATETIME",
+    },
 }
 
 
