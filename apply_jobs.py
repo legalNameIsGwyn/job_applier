@@ -25,6 +25,7 @@ Settings: config/apply_settings.py (which jobs, which sites)   config/answers.py
 """
 
 import argparse
+import re
 from pathlib import Path
 
 import db.tracking as tracking
@@ -46,7 +47,7 @@ from applying.form_filler import fill_form, open_application
 from applying.fill_report import save_fill_report
 from core.job_status import check_open, closed_in_text
 from core.scorer import MODEL, load_resume
-from core.console import banner, decision, fmt_score, job_head, step, tag
+from core.console import INDENT, banner, decision, fmt_score, job_head, note, paint, say, section, step, tag, wrap
 
 # Optional settings (defaults apply if config/apply_settings.py doesn't have them yet)
 GENERIC_AUTO_ADVANCE = getattr(_cfg, "GENERIC_AUTO_ADVANCE", True)
@@ -100,7 +101,7 @@ def document_files(job: dict) -> tuple[Path, Path]:
     """This job's resume and cover letter paths, creating them first if they don't exist."""
     folder = job_folder(job)
     if not folder.exists():
-        print("  Making this job's resume and cover letter first...")
+        tag("DOCS", "Making this job's resume and cover letter first...")
         create_application(job)
     fields = name_fields(load_resume(), job)
     return (folder / f"{render_name(RESUME_FILENAME, fields)}.docx",
@@ -204,10 +205,60 @@ def forget_missing_links(db_path: str = DB_PATH) -> int:
     return clear_missing_link_markers(RECHECKABLE_MARKERS, db_path)
 
 
+# ------------------------------------------------------------------------------ console output
+
+# Color of where a filled answer came from; the same words are written to fill_report.txt.
+SOURCE_COLORS = {"rule": "green", "learned": "sky", "draft": "orange", "asked": "gold",
+                 "blank": "gray", "never": "red", "unknown": "red"}
+RESULT_KINDS = {"applied": "ok", "skipped": "skip", "closed": "bad", "opened": "warn"}
+CLOSED_TEXT = "The page text says this posting is closed. Not recording it as closed; check it in the browser."
+
+
+def warn(text: str) -> None:
+    tag("APPLY", text, "warn")
+
+
+def show_line(text: str) -> None:
+    """The Workday and generic fillers report progress as plain lines; print them in the console style."""
+    body = text.strip()
+    if text.startswith("\n"):
+        print()
+    if not body:
+        return
+    heading = re.match(r"-+\s*(.*?)\s*-+$", body)
+    if heading:
+        print(section(heading.group(1)))
+    elif body.lower().startswith("reached"):
+        decision("ok", body)
+    elif re.search(r"closed|stopping|stopped|couldn.t|can.t find|still on|errors?\b|failed|could not|maximum", body, re.I):
+        warn(body)
+    else:
+        print(wrap(body, color="white"))
+
+
+def style_prompt(prompt: str) -> str:
+    """A question for you, in color: a gold arrow and gold text. The space before the cursor is kept."""
+    lead = "\n" * (len(prompt) - len(prompt.lstrip("\n")))
+    lines = prompt.strip("\n").split("\n")
+    out = []
+    for i, line in enumerate(lines):
+        space = " " if i == len(lines) - 1 and line.endswith(" ") else ""
+        out.append(INDENT + (paint("▶ ", "gold", True) if i == 0 else "  ") + paint(line.strip(), "gold") + space)
+    return lead + "\n".join(out)
+
+
+def ask_you(prompt: str = "") -> str:
+    return input(style_prompt(prompt))
+
+
+def show_result(status: str) -> None:
+    decision(RESULT_KINDS.get(status, "skip"), f"{status}: recorded")
+
+
 # ----------------------------------------------------------------------------- one job
 
 
-def apply_to_job(context, job: dict, url: str, ats: str, ask=input, answerer=None) -> str:
+def apply_to_job(context, job: dict, url: str, ats: str, ask=ask_you, answerer=None) -> str:
     """Fill one application and wait for you. Returns applied | skipped | opened | closed."""
     resume = load_resume()
     resume_file, letter_file = document_files(job)
@@ -224,18 +275,18 @@ def apply_to_job(context, job: dict, url: str, ats: str, ask=input, answerer=Non
     try:
         if ats == "workday":
             import applying.workday as workday
-            outcome = workday.run_application(page, url, answerer, resume_file, letter_file, ask=ask, show=print,
+            outcome = workday.run_application(page, url, answerer, resume_file, letter_file, ask=ask, show=show_line,
                                               show_report=capture, auto_advance=WORKDAY_AUTO_ADVANCE,
                                               max_steps=WORKDAY_MAX_STEPS)
             if outcome == "closed":
-                print("  The page text says this posting is closed. Not recording it as closed; check it in the browser.")
+                warn(CLOSED_TEXT)
         elif ats in GENERIC_SITES:
             import applying.generic as generic
-            outcome = generic.run_application(page, url, answerer, resume_file, letter_file, ask=ask, show=print,
+            outcome = generic.run_application(page, url, answerer, resume_file, letter_file, ask=ask, show=show_line,
                                               show_report=capture, auto_advance=GENERIC_AUTO_ADVANCE,
                                               max_steps=GENERIC_MAX_STEPS, timeout_ms=PAGE_TIMEOUT_MS)
             if outcome == "closed":
-                print("  The page text says this posting is closed. Not recording it as closed; check it in the browser.")
+                warn(CLOSED_TEXT)
         else:
             frame = open_application(page, url, PAGE_TIMEOUT_MS)
             try:
@@ -243,12 +294,12 @@ def apply_to_job(context, job: dict, url: str, ats: str, ask=input, answerer=Non
             except Exception:
                 body = ""
             if closed_in_text(body[:20000]) and frame is None:
-                print("  The page text says this posting is closed. Not recording it as closed; check it in the browser.")
+                warn(CLOSED_TEXT)
             if frame is None:
-                print("  Couldn't find the application form on that page. It's open in the browser for you.")
+                warn("Couldn't find the application form on that page. It's open in the browser for you.")
             else:
                 if closed_in_text(body[:3000]):
-                    print("  WARNING: the page mentions the job being closed or unavailable. Check before filling in more.")
+                    warn("The page mentions the job being closed or unavailable. Check before filling in more.")
                 capture(fill_form(frame, answerer, resume_file, letter_file))
         reply = ask("\n  Review the form, fix anything, and submit it yourself in the browser.\n"
                     "  Then type  a = I submitted it,  s = skip this job for good,  Enter = not yet: ")
@@ -258,19 +309,24 @@ def apply_to_job(context, job: dict, url: str, ats: str, ask=input, answerer=Non
         page.close()
         saved = save_fill_report(job_folder(job), job, url, ats, pages_filled, result)
         if saved:
-            print(f"  Fill report saved: {saved}")
+            note(f"Fill report saved: {saved}")
     return result
 
 
 def print_report(report) -> None:
     if report.uploaded:
-        print(f"  Uploaded: {', '.join(report.uploaded)}")
+        say("upload", ", ".join(report.uploaded), color="mint")
     for label, value, source in report.filled:
-        print(f"  [{source:>7}] {label[:55]}: {value}")
+        text = " ".join(str(value).split())
+        text = text if len(text) <= 160 else text[:159] + "…"    # the full text is in fill_report.txt
+        first = INDENT + paint(source.ljust(7), SOURCE_COLORS.get(source, "white"), True) + " " \
+            + paint(f"{label[:30]:<30}", "gray") + " "
+        print(wrap(text, first, INDENT + " " * (7 + 1 + 30 + 1), color="white") if text
+              else first + paint("(left blank)", "gray"))
     if report.attention:
-        print("  NEEDS YOUR ATTENTION:")
+        print(section("NEEDS YOUR ATTENTION"))
         for label, why in report.attention:
-            print(f"    - {label[:60]}: {why}")
+            decision("warn", f"{label[:60]}: {why}")
 
 
 # --------------------------------------------------------------------------------- CLI
@@ -302,7 +358,7 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
         else:
             decision("ok", f"ready: {ats}{' (generic filler, best effort)' if ats in GENERIC_SITES else ''}")
             if status == "maybe_closed":
-                print("  WARNING: the page text mentions the job being closed. Not recorded as closed; check it when the form opens.")
+                warn("The page text mentions the job being closed. Not recorded as closed; check it when the form opens.")
             ready.append((job, link, ats))
     print()
     tag("APPLY", f"{len(ready)} of {len(jobs)} job(s) can be filled.")
@@ -336,16 +392,16 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
                     tag("APPLY", "Stopped.")
                     break
                 except Exception as e:
-                    print(f"  Failed: {e}")
+                    decision("bad", f"failed: {e}")
                     continue
                 record_application(job["job_url"], status, apply_url=link, ats=ats)
                 if status == "applied":
                     try:
                         tracking.log_applied(job["job_url"], ats=ats, folder=job_folder(job).name)
                     except Exception as e:   # tracking must never break applying
-                        print(f"  (couldn't start tracking: {e})")
+                        note(f"(couldn't start tracking: {e})")
                 done += 1
-                print(f"  Recorded as: {status}")
+                show_result(status)
         finally:
             context.close()
     print()

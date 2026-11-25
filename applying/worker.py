@@ -31,7 +31,7 @@ from pathlib import Path
 
 from config.settings import PROJECT_DIR
 import config.apply_settings as _cfg
-from core.console import tag
+from core.console import decision, job_head, note, paint, say, step, tag
 
 PROJECT_DIR = Path(PROJECT_DIR)
 RUNS_DIR = PROJECT_DIR / "data" / "apply_runs"
@@ -101,7 +101,7 @@ def launch_all(ready: list, parallel: int, prepare=None, poll: float = 2.0, spaw
             try:
                 prepare(job)
             except Exception as e:
-                print(f"  Couldn't make the documents ({type(e).__name__}: {e}). Skipping this job.")
+                tag("APPLY", f"Couldn't make the documents ({type(e).__name__}: {e}). Skipping this job.", "bad")
                 continue
         spec, status = run_dir / f"job{n}.json", run_dir / f"job{n}.status.json"
         spec.write_text(json.dumps({"job": job, "link": link, "ats": ats, "n": n, "total": total,
@@ -120,13 +120,13 @@ def launch_all(ready: list, parallel: int, prepare=None, poll: float = 2.0, spaw
                 st = _read_status(item["status"])
                 text = st.get("text", "")
                 if text and shown.get(n) != text:
-                    print(f"  [{n}/{total}] {item['label']}: {text}")
+                    say(f"[{n}/{total}]", f"{item['label']}: {text}")
                     shown[n] = text
                 if proc.poll() is not None:
                     del running[n]
                     st = _read_status(item["status"])
                     if st.get("state") not in ("done", "error"):
-                        print(f"  [{n}/{total}] {item['label']}: window closed before finishing (not recorded)")
+                        say(f"[{n}/{total}]", f"{item['label']}: window closed before finishing (not recorded)", "yellow")
                         st = {"state": "closed", "text": "window closed before finishing"}
                     results.append({"n": n, "label": item["label"], **st})
             time.sleep(poll)
@@ -139,7 +139,8 @@ def launch_all(ready: list, parallel: int, prepare=None, poll: float = 2.0, spaw
 
     tag("APPLY", f"Finished {len(results)} application(s):")
     for r in sorted(results, key=lambda r: r["n"]):
-        print(f"  {r['n']}. {r['label']}: {r.get('text', r.get('state'))}")
+        say(f"{r['n']}.", f"{r['label']}: {r.get('text', r.get('state'))}",
+            {"done": "green", "error": "red", "closed": "yellow"}.get(r.get("state")))
     return results
 
 
@@ -184,8 +185,10 @@ def worker_main(spec_path: str) -> int:
         from config.settings import MIN_SCORE
         _aj.show_banner(f"FULL-AUTO {n}/{total}", MIN_SCORE)
     except Exception as e:
-        print(f"  (could not show the header: {e})")
-    print(f"{'=' * 60}\n[{n}/{total}] {job['title']} - {job['company']}  (score {job['match_score']:g})\n  {link}\n{'=' * 60}")
+        note(f"(could not show the header: {e})")
+    step(None, f"APPLYING {n}/{total}", right=f"score {job['match_score']:g}")
+    print()
+    job_head(job["title"], job["company"], link)
     status("working", "starting a browser window")
 
     profile = PARALLEL_PROFILE_DIR / f"{spec['run']}_job{n}"
@@ -214,11 +217,11 @@ def worker_main(spec_path: str) -> int:
                 _set_title(f"[{n}/{total}] QUESTION - {job['company'][:26]}")
             status("waiting", text)
             try:
-                return input(prompt)
+                return input(aj.style_prompt(prompt))
             finally:
                 status("working", "working")
 
-        print("  Copying your browser profile...")
+        note("Copying your browser profile...")
         _copy_profile(aj.BROWSER_PROFILE_DIR, profile)
         status("working", "filling the form")
         with sync_playwright() as p:
@@ -235,16 +238,18 @@ def worker_main(spec_path: str) -> int:
                 from documents.application_maker import job_folder
                 tracking.log_applied(job["job_url"], ats=ats, folder=job_folder(job).name)
             except Exception as e:                   # tracking must never break applying
-                print(f"  (couldn't start tracking: {e})")
+                note(f"(couldn't start tracking: {e})")
         status("done", {"applied": "applied (recorded)", "skipped": "skipped for good", "opened": "left open, not finished",
                         "closed": "posting is closed"}.get(result, result))
-        print(f"\n  Recorded as: {result}")
+        print()
+        aj.show_result(result)
     except KeyboardInterrupt:
         status("error", "stopped with Ctrl-C (not recorded)")
         failed = True
     except Exception as e:
         status("error", f"failed: {type(e).__name__}: {e}")
-        print(f"\n  Failed: {type(e).__name__}: {e}")
+        print()
+        decision("bad", f"failed: {type(e).__name__}: {e}")
         traceback.print_exc()
         failed = True
     finally:
@@ -256,7 +261,7 @@ def worker_main(spec_path: str) -> int:
         except (EOFError, KeyboardInterrupt):
             pass
         return 1
-    print("  Closing this window...")
+    note("Closing this window...")
     time.sleep(3)
     return 0
 

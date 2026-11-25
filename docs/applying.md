@@ -100,6 +100,8 @@ listed under NEEDS YOUR ATTENTION, press Submit yourself, then answer `a` (I sub
 Enter (not yet). Because the copies are deleted afterwards, an account you create on a site inside one of these windows
 (a Workday account, for example) is not kept: create it once with `python apply_jobs.py --url <job> --parallel 1`.
 
+The terminal output is colored like `main.py` (same header and palette). Each filled field shows where its answer came from: green = rule, blue = learned, orange = drafted by the model (read it), gold = answered by you, gray = left blank. Every question for you starts with a gold ▶. Colors turn off when output is piped to a file; change them with `CONSOLE_COLORS` in `config\settings.py`.
+
 ### Which sites get filled
 
 | Kind | How |

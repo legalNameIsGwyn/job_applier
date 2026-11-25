@@ -18,6 +18,7 @@ from config.apply_settings import (
     ASK_ABOUT_UNKNOWN, DRAFT_FREE_TEXT, DRAFT_SELF_CHECK, FREE_TEXT_MAX_WORDS, LEARNED_ANSWERS_FILE,
 )
 from config.settings import DESCRIPTION_CHARS_WRITING
+from core.console import INDENT, paint
 
 STATES = {
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California", "CO": "Colorado",
@@ -220,10 +221,11 @@ class Answerer:
     # -- asking you
 
     def _ask_user(self, label: str, kind: str, options: list[str]) -> str | None:
-        print(f"\n  ? No answer rule for: {label}")
+        print()
+        print(INDENT + paint("? ", "gold", True) + paint(label, "white", True) + paint("   (no answer rule)", "gray"))
         if kind in CHOICE_KINDS and options:
             for i, option in enumerate(options, 1):
-                print(f"      {i}. {option}")
+                print(INDENT + "  " + paint(f"{i:>2}.", "gray") + " " + option)
             reply = self.ask("    Number or text (Enter to skip): ").strip()
             if not reply:
                 return None
