@@ -11,6 +11,7 @@ nothing on the page needs you) or waits while you fix the page. The final "Submi
 """
 
 import re
+from urllib.parse import urlsplit, urlunsplit
 
 from applying.form_filler import fill_form
 from core.job_status import closed_in_text
@@ -44,8 +45,14 @@ def _step_title(page) -> str:
     return ""
 
 
+SIGN_IN_STEP = re.compile(r"sign ?in|create account|log ?in", re.I)   # step titles such as "Create Account/Sign In"
+
+
 def _needs_sign_in(page) -> bool:
-    return _visible(page.locator("input[type=password]")) or bool(re.search(r"/login|/signin", page.url, re.I))
+    """True on a login URL, a password box, or the wizard's own "Create Account/Sign In" step (the sign-in options
+    page has no password box yet)."""
+    return (_visible(page.locator("input[type=password]")) or bool(re.search(r"/login|/signin", page.url, re.I))
+            or bool(SIGN_IN_STEP.search(_step_title(page))))
 
 
 def _next_button(page):
@@ -66,15 +73,70 @@ def _at_review(page) -> bool:
     return _visible(submit) or bool(re.search(r"review", _step_title(page), re.I))
 
 
+APPLY_WORD = re.compile(r"^\s*apply\b", re.I)
+# Things that start with or sit near "apply" but aren't the posting's Apply button (cookie / privacy banners,
+# "Apply Manually" which is the next step, "Apply with LinkedIn", "Application status").
+NOT_THE_APPLY_BUTTON = re.compile(r"accept|cookie|privacy|consent|reject|decline|preference|manual|"
+                                  r"with (linkedin|google|indeed)|status", re.I)
+OTHER_TAGS = 'a, button, [role="button"], [role="link"], div[tabindex], span[tabindex]'
+
+
+def _find_apply_button(page, wait_ms: int = 15000):
+    """The posting's Apply control, or None. Workday draws it late, and it may be a link, a button or another tag."""
+    main = page.locator('[data-automation-id="adventureButton"]').filter(visible=True)
+    try:
+        main.first.wait_for(state="visible", timeout=wait_ms)
+        return main.first
+    except Exception:
+        pass
+    pool = (page.get_by_role("button", name=APPLY_WORD)
+            .or_(page.get_by_role("link", name=APPLY_WORD))
+            .or_(page.locator(OTHER_TAGS).filter(has_text=APPLY_WORD)))
+    try:
+        found = pool.count()
+    except Exception:
+        return None
+    for i in range(min(found, 25)):
+        item = pool.nth(i)
+        try:
+            if not item.is_visible():
+                continue
+            label = (item.inner_text(timeout=1000) or item.get_attribute("aria-label")
+                     or item.get_attribute("value") or "").strip()
+        except Exception:
+            continue
+        if label and len(label) <= 40 and APPLY_WORD.match(label) and not NOT_THE_APPLY_BUTTON.search(label):
+            return item
+    return None
+
+
+def _in_application_already(page) -> bool:
+    """True if the page is already past the posting (autofill / apply-manually choice, or sign-in)."""
+    choice = page.locator('[data-automation-id="autofillWithResume"], [data-automation-id="applyManually"]')
+    return _visible(choice) or _needs_sign_in(page)
+
+
 def _start_application(page, resume_file, ask) -> None:
     """From the job posting, press Apply and choose to autofill from the resume (or apply manually)."""
-    apply = page.locator('[data-automation-id="adventureButton"]').filter(visible=True)
-    if not _visible(apply):
-        apply = page.get_by_role("link", name=re.compile(r"^apply", re.I)).or_(
-            page.get_by_role("button", name=re.compile(r"^apply", re.I))).filter(visible=True)
-    if _visible(apply):
-        apply.first.click(timeout=5000)
+    apply = _find_apply_button(page)
+    if apply is not None:
+        apply.click(timeout=5000)
         page.wait_for_timeout(2500)
+    elif not _in_application_already(page):
+        # No Apply control found: Workday's own Apply link is the posting address + /apply, so go there directly.
+        parts = urlsplit(page.url)
+        path = parts.path.rstrip("/")
+        if not path.endswith("/apply"):
+            print("  Couldn't find the Apply button; opening the posting's /apply address instead.")
+            try:
+                page.goto(urlunsplit((parts.scheme, parts.netloc, path + "/apply", parts.query, "")),
+                          timeout=45000, wait_until="domcontentloaded")
+                page.wait_for_timeout(3000)
+            except Exception as e:
+                print(f"  (could not open it: {type(e).__name__})")
+        if not _in_application_already(page):
+            ask("\n  Still no Apply button. Click Apply yourself in the browser window "
+                "(leave the page on the sign-in or autofill step), then press Enter here: ")
 
     autofill = page.locator('[data-automation-id="autofillWithResume"]').or_(
         page.get_by_text(re.compile(r"autofill with resume", re.I))).filter(visible=True)
