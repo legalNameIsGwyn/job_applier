@@ -9,7 +9,7 @@ runs as a module: `python -m tools.summary`.
 
 ## Choosing a profile
 Every command takes `--profile NAME`.
-```
+
 
 | Command | What it does |
 |---|---|
@@ -158,6 +158,12 @@ Output goes to `profiles\<name>\applications\<company>_<title>_<hash>\` (resume,
 |---|---|
 | `python -m applying.check_linkedin_page <linkedin job url>` | What the Apply button is and what the tool would do (`--headless` hides the window) |
 | `python -m applying.ats_lookup "Company" "Job title" "City, ST"` | Look for the job on the company's public Greenhouse / Lever / Ashby board |
+
+### Model tester
+Compare how different Ollama models write resumes and cover letters (more tests coming).
+`python -m tools.model_test docs --profiles NAME [NAME...] --models MODEL [MODEL...] --url JOB_URL`
+Use `--posting-file FILE.json` for postings you provide (see `tools/model_test/example_postings.json`), `--repeat N` to see how much one model varies, `--run NAME` to resume.
+Results: `data/model_tests/<run>/`. Your jobs database and ratings are never touched.
 
 ## Notes
 - **Ollama:** scoring and writing use a local model, set by `OLLAMA_MODEL` in `config\settings.py`. The environment variable of the same name overrides it for one PowerShell window only.
