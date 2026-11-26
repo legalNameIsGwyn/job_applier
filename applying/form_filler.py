@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from applying.answering import Answerer, pick_option
+from applying.blocked import Blocked
 
 SCAN_JS = r"""
 () => {
@@ -196,7 +197,8 @@ def fill_form(frame, answerer: Answerer, resume_file: Path | None, letter_file: 
             options = f["options"]
             if kind == "combobox":
                 options = _open_combobox_options(frame, loc(f["id"]))
-            value, source = answerer.answer({"label": label, "kind": kind, "options": options})
+            value, source = answerer.answer({"label": label, "kind": kind, "options": options,
+                                             "required": bool(f["required"])})
 
             if kind == "combobox" and (value is None or value == ""):
                 _close_dropdown(frame)  # we opened it to read the choices; leave it closed
@@ -228,6 +230,8 @@ def fill_form(frame, answerer: Answerer, resume_file: Path | None, letter_file: 
             report.filled.append((label, shown, source))
             if source == "draft":
                 report.attention.append((label, "drafted by the model: read it before sending"))
+        except Blocked:
+            raise   # the job needs you: let the run park it instead of listing this as a field problem
         except Exception as e:  # one bad field must not stop the rest
             detail = " ".join(str(e).split())[:90]
             report.attention.append((label, f"could not fill it ({type(e).__name__}: {detail})"))

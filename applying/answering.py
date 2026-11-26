@@ -4,8 +4,10 @@ Order for every question:
   1. legal attestations (config/answers.py NEVER_ANSWER)  -> left for you
   2. rules in config/answers.py                            -> filled from resume.json
   3. answers you typed before (learned_answers.json)
-  4. long free-text questions                              -> drafted by the local model (you review)
-  5. anything else                                         -> you are asked in the terminal, and it is remembered
+  4. long REQUIRED free-text questions                     -> drafted by the local model (you review)
+  5. anything else that is REQUIRED                        -> the job is parked (a normal run) or you are asked in
+                                                              the terminal and it is remembered (--url, --parked)
+  Optional fields only get 2 and 3 (and none of it when ANSWER_OPTIONAL_FIELDS is off): never asked, never drafted.
 """
 
 import json
@@ -13,9 +15,10 @@ import os
 import re
 from pathlib import Path
 
+from applying.blocked import Blocked, UNKNOWN_QUESTION, parking_enabled
 from config.answers import ANSWER_RULES, NEVER_ANSWER
 from config.apply_settings import (
-    ASK_ABOUT_UNKNOWN, DRAFT_FREE_TEXT, DRAFT_SELF_CHECK, FREE_TEXT_MAX_WORDS, LEARNED_ANSWERS_FILE,
+    ANSWER_OPTIONAL_FIELDS, ASK_ABOUT_UNKNOWN, DRAFT_FREE_TEXT, DRAFT_SELF_CHECK, FREE_TEXT_MAX_WORDS, LEARNED_ANSWERS_FILE,
 )
 from config.settings import DESCRIPTION_CHARS_WRITING
 from core.console import INDENT, paint
@@ -131,7 +134,7 @@ class Answerer:
 
     def __init__(self, resume: dict, job: dict, ask=input, learned_file=LEARNED_ANSWERS_FILE,
                  ask_unknown: bool = ASK_ABOUT_UNKNOWN, draft_free_text: bool = DRAFT_FREE_TEXT,
-                 drafter=None):
+                 drafter=None, answer_optional: bool = ANSWER_OPTIONAL_FIELDS):
         self.resume = resume
         self.job = job
         self.values = resume_values(resume)
@@ -139,6 +142,7 @@ class Answerer:
         self.learned_file = Path(learned_file)
         self.ask_unknown = ask_unknown
         self.draft_free_text = draft_free_text
+        self.answer_optional = answer_optional
         self.drafter = drafter or self._draft_with_model
         try:
             self.learned = json.loads(self.learned_file.read_text(encoding="utf-8"))
@@ -150,12 +154,16 @@ class Answerer:
     def answer(self, field: dict) -> tuple[str | None, str]:
         """(value, source) for one field. value None = left for you; "" = deliberately blank.
 
-        field: {"label", "kind", "options"}
-        source: rule | learned | draft | asked | blank | never | unknown
+        field: {"label", "kind", "options", "required"}   (no "required" key = treated as required)
+        source: rule | learned | draft | asked | blank | never | skipped | unknown
+        Raises Blocked when a required question has no answer and parking is on (applying/blocked.py).
         """
         label, kind, options = field["label"], field["kind"], field.get("options") or []
+        required = field.get("required", True)
         if re.search(NEVER_ANSWER, label, re.IGNORECASE):
             return None, "never"
+        if not required and not self.answer_optional:
+            return None, "skipped"      # ANSWER_OPTIONAL_FIELDS is off: optional fields stay blank
 
         for pattern, answer in ANSWER_RULES:
             if re.search(pattern, label, re.IGNORECASE):
@@ -170,12 +178,17 @@ class Answerer:
             if value is not None:
                 return value, "learned"
 
+        if not required:
+            return None, "unknown"      # optional and nothing answers it: left blank, never asked or drafted
+
         if kind == "textarea" and self.draft_free_text:
             text = self.drafter(label)
             if text:
                 return text, "draft"
 
         if self.ask_unknown:
+            if parking_enabled():
+                raise Blocked(UNKNOWN_QUESTION, " ".join(label.split())[:120])
             value = self._ask_user(label, kind, options)
             if value is not None:
                 self._remember(key, value)

@@ -163,6 +163,11 @@ Whatever it finds is saved once per job. A lookup that fails is tried up to `LIN
 
 ### Answering questions
 
+**Required and optional questions.** A **required** question with no rule, learned answer or draft **parks the job**
+in a normal run (see "Jobs that need you"); with `--url` or `--parked` you are asked in the terminal and the answer is
+remembered. **Optional** fields are never asked and never drafted: with `ANSWER_OPTIONAL_FIELDS = True` they are
+filled only when a rule or a learned answer exists, and with `False` every optional field is left blank.
+
 Rules in `config\answers.py` (filled from `resume.json`), then answers you typed before (`data\learned_answers.json`,
 shared by all profiles), then long "why us?" questions drafted by the local model (read them; they're flagged), then
 it asks you in the terminal and remembers the answer. Gender, race, veteran, disability, nationality, sexual orientation

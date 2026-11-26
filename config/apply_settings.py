@@ -52,7 +52,8 @@ PAGE_TIMEOUT_MS = 30000    # how long to wait for a page to load
 
 # -------------------------------------------------------------------- answers
 LEARNED_ANSWERS_FILE = PROJECT_DIR / "data" / "learned_answers.json"  # answers you typed in, remembered
-ASK_ABOUT_UNKNOWN = True   # True = stop and ask in the terminal when a question has no answer rule
+ASK_ABOUT_UNKNOWN = True   # True = a REQUIRED question with no answer rule is a block: the job is parked in a normal run (PARK_BLOCKED), or you are asked in the terminal (--url, --parked)
+ANSWER_OPTIONAL_FIELDS = False   # True = fill optional fields too, but only from a rule or a learned answer (never asked, never drafted); False = leave every optional field blank
 DRAFT_FREE_TEXT = True     # True = the local model drafts answers to long "why us?" style questions
 FREE_TEXT_MAX_WORDS = 120  # length limit for those drafts
 DRAFT_SELF_CHECK = True    # True = the model checks each draft against your resume and removes claims the resume does not support

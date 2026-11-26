@@ -102,7 +102,8 @@ Both flows check the database **and** the applications list, so a job is never h
 ```powershell
 python -m tools.rating            # hand-rate 20 jobs to tune the scores (do this early)
 python -m tools.rescore --yes     # score stored jobs again after changing a prompt, the model or the resume
-python -m tools.check --blockers  # no model: block saved jobs that need a clearance or citizenship, and clear their descriptions
+python -m tools.check --blockers  # no model: block saved 
+a clearance or citizenship, and clear their descriptions
 python -m tools.check --availability  # are the saved jobs that have documents still open? marks the closed ones
 python -m tools.check --mark URL  # you checked a posting yourself: mark it closed (--as open undoes it)
 python -m tools.stats             # what's working: funnel, score vs outcome, breakdowns, trends
