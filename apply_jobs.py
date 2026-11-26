@@ -9,7 +9,8 @@
                                                 # save the employer's own link for a job
     python apply_jobs.py --include-opened       # offer jobs you opened before but didn't finish
     python apply_jobs.py --recheck-links        # forget "no link found" results and search again
-    python apply_jobs.py --parked --list        # jobs set aside because they needed you (--parked alone opens them)
+    python apply_jobs.py --parked               # open the jobs set aside because they needed you, best score first
+    python apply_jobs.py --parked --list        # just show them
     python apply_jobs.py --login                # log in to LinkedIn by hand, once (or --login indeed)
     python apply_jobs.py --profile it_support   # use another profile's scores
 
@@ -473,8 +474,73 @@ def run_parked(limit: int, url: str | None = None, list_only: bool = False) -> N
         decision("warn", f"{why}; parked {job['tries']} time(s)")
     print()
     tag("APPLY", f"{len(jobs)} job(s) on the parked list.")
-    if not list_only:
-        note("Opening parked jobs isn't added yet. For now --parked --list shows them.")
+    if list_only or limit <= 0:
+        return
+
+    ready = []   # the first `limit` jobs that can be opened; closed or unfillable ones don't use up the count
+    for job in jobs:
+        if len(ready) >= limit:
+            break
+        name = f"{job['title']} - {job['company']}"
+        link, ats, reason = target_for(job)
+        if reason:
+            decision("skip", f"{name}: skipped, {reason} (it stays parked)")
+            continue
+        status = check_open(link) if CHECK_STILL_OPEN else "open"
+        if status == "closed":
+            decision("bad", f"{name}: closed, the posting is no longer open")
+            record_application(job["job_url"], "closed", apply_url=link, ats=ats)
+            continue
+        if status == "maybe_closed":
+            warn(f"{name}: the page text mentions the job being closed. Check it when the form opens.")
+        ready.append((job, link, ats))
+    if not ready:
+        tag("APPLY", "Nothing on the parked list can be opened right now.")
+        return
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        tag("APPLY", "Playwright isn't installed. Run:  pip install playwright   then   playwright install chromium")
+        return
+
+    finished = 0
+    with sync_playwright() as p:
+        context = _open_profile(p)
+        try:
+            for number, (job, link, ats) in enumerate(ready, 1):
+                step(None, "APPLYING", right=f"parked {number}/{len(ready)}  score {fmt_score(job['match_score'])}")
+                print()
+                job_head(job["title"], job["company"], link)
+                note(f"It was parked because: {job['reason']}" + (f" ({job['detail'][:80]})" if job["detail"] else ""))
+                try:
+                    status = apply_to_job(context, job, link, ats)
+                except KeyboardInterrupt:
+                    print()
+                    tag("APPLY", "Stopped. The rest stay on the parked list.")
+                    break
+                except Exception as e:
+                    decision("bad", f"failed: {e} (it stays parked)")
+                    continue
+                if status == "opened":   # you pressed Enter, "not yet"
+                    decision("skip", "not yet: it stays on the parked list")
+                    continue
+                record_application(job["job_url"], status, apply_url=link, ats=ats)
+                if status == "applied":
+                    try:
+                        tracking.log_applied(job["job_url"], ats=ats, folder=job_folder(job).name)
+                    except Exception as e:   # tracking must never break applying
+                        note(f"(couldn't start tracking: {e})")
+                finished += 1
+                show_result(status)
+        finally:
+            context.close()
+    print()
+    try:
+        waiting = len(parked_jobs())
+    except Exception:
+        waiting = "?"
+    tag("APPLY", f"{finished} parked job(s) finished. {waiting} still on the parked list.")
 
 
 def show_banner(mode: str, min_score) -> None:

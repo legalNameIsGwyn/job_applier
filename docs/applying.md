@@ -79,7 +79,8 @@ if needed), fills every field it has an answer for, and **stops before Submit**.
 asks for, reads or stores a password.
 
 ```powershell
-python apply_jobs.py --parked --list                # jobs set aside because they needed you
+python apply_jobs.py --parked                       # open the jobs set aside because they needed you, best score first
+python apply_jobs.py --parked --list                # just show them
 python apply_jobs.py --list                         # which top jobs can be filled, and which can't and why
 python apply_jobs.py --top 3                        # fill the 3 best
 python apply_jobs.py --url "<job url>"              # one job already in the database
@@ -121,8 +122,10 @@ It never tries to get past a bot check.
 | `NOTIFY_BEEP = True` | One short beep when a job is parked (Windows only). |
 
 Code: `applying/blocked.py` (the `Blocked` signal and the park-or-ask decision) and `applying/notify.py`
-(the notifier; add your own handler with `register()`). Status: the building blocks exist; parking itself is wired
-in by the next steps of the full-auto redesign (`claude/full_auto_redesign.md`).
+(the notifier; add your own handler with `register()`). `apply_jobs.py --parked` opens each parked job fresh, best score first (`--top` caps how many; `--url <job>` picks one).
+It checks the posting is still open (closed ones leave the list) and uses the saved link. Blockers ask you in the terminal
+instead of parking again. At the review prompt: `a` = I submitted it, `s` = skip for good (both leave the list),
+Enter = not yet (it stays parked). Ctrl+C stops and leaves the rest parked.
 
 ### Which sites get filled
 
