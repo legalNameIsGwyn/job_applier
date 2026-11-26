@@ -9,6 +9,7 @@
                                                 # save the employer's own link for a job
     python apply_jobs.py --include-opened       # offer jobs you opened before but didn't finish
     python apply_jobs.py --recheck-links        # forget "no link found" results and search again
+    python apply_jobs.py --parked --list        # jobs set aside because they needed you (--parked alone opens them)
     python apply_jobs.py --login                # log in to LinkedIn by hand, once (or --login indeed)
     python apply_jobs.py --profile it_support   # use another profile's scores
 
@@ -455,6 +456,27 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
     show_parked_summary(parked)
 
 
+def run_parked(limit: int, url: str | None = None, list_only: bool = False) -> None:
+    """apply_jobs.py --parked: the jobs set aside earlier, best score first. You are here, so a blocker asks you
+    instead of parking the job again."""
+    init_db()
+    set_parking(False)
+    jobs = sorted(parked_jobs(url), key=lambda j: -j["match_score"])   # ties stay oldest first
+    if not jobs:
+        tag("APPLY", "That job isn't on the parked list." if url else "The parked list is empty.")
+        return
+    print(section("PARKED"))
+    for job in jobs:
+        print()
+        job_head(f"{fmt_score(job['match_score'])}  {job['title']}", job["company"], job["apply_url"] or job["job_url"])
+        why = job["reason"] + (f" ({job['detail'][:80]})" if job["detail"] else "")
+        decision("warn", f"{why}; parked {job['tries']} time(s)")
+    print()
+    tag("APPLY", f"{len(jobs)} job(s) on the parked list.")
+    if not list_only:
+        note("Opening parked jobs isn't added yet. For now --parked --list shows them.")
+
+
 def show_banner(mode: str, min_score) -> None:
     """The same header main.py prints, so you can see which profile this run loaded."""
     from datetime import datetime
@@ -474,6 +496,7 @@ if __name__ == "__main__":
     parser.add_argument("--recheck-links", action="store_true", help="search again for jobs marked 'no link found'")
     parser.add_argument("--login", nargs="?", const="linkedin", choices=["linkedin", "indeed"],
                         help="open the saved browser on a sign-in page so you can log in by hand")
+    parser.add_argument("--parked", action="store_true", help="work through the jobs set aside because they needed you (--list shows them, --url picks one)")
     parser.add_argument("--list", action="store_true", help="show what would be filled; open nothing")
     parser.add_argument("--parallel", type=int, default=PARALLEL_JOBS, help="applications open at once, each in its own window (1 = one at a time here)")
     add_profile_arguments(parser)
@@ -483,6 +506,9 @@ if __name__ == "__main__":
 
     if args.login:
         login(args.login)
+        raise SystemExit
+    if args.parked:
+        run_parked(args.top, args.url, args.list)
         raise SystemExit
     if args.recheck_links:
         init_db()

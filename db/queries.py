@@ -220,17 +220,20 @@ def application_counts(db_path: str = DB_PATH) -> dict:
         return {st: n for st, n in s.execute(select(Application.status, func.count()).group_by(Application.status)).all()}
 
 
-def parked_jobs(db_path: str = DB_PATH) -> list[dict]:
-    """The active profile's parked list, oldest first: what needs you, and why."""
+def parked_jobs(url: str | None = None, db_path: str = DB_PATH) -> list[dict]:
+    """The active profile's parked list, oldest first: what needs you, and why. url limits it to one job."""
     with session_scope(db_path) as s:
         pid = current_profile_id(s)
-        q = (select(Job, Application).join(Application, Application.job_id == Job.id)
+        q = (select(Job, Application, JobScore.match_score).join(Application, Application.job_id == Job.id)
+             .outerjoin(JobScore, _on_score(pid))
              .where(Application.status == "parked", Application.profile_id == pid)
              .order_by(Application.parked_at, Application.id))
+        if url:
+            q = q.where(Job.job_url == url)
         return [dict(title=j.title, company=j.company, location=j.location, job_url=j.job_url,
                      description=j.description, apply_url=a.apply_url or j.apply_url, ats=a.ats,
-                     reason=a.park_reason or "", detail=a.park_detail or "", tries=a.park_tries or 0,
-                     parked_at=a.parked_at) for j, a in s.execute(q).all()]
+                     match_score=score or 0.0, reason=a.park_reason or "", detail=a.park_detail or "",
+                     tries=a.park_tries or 0, parked_at=a.parked_at) for j, a, score in s.execute(q).all()]
 
 
 def unfinished_applications(limit: int = 10, db_path: str = DB_PATH) -> list[dict]:
