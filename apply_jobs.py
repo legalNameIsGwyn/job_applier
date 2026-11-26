@@ -59,6 +59,7 @@ GENERIC_AUTO_ADVANCE = getattr(_cfg, "GENERIC_AUTO_ADVANCE", True)
 GENERIC_MAX_STEPS = getattr(_cfg, "GENERIC_MAX_STEPS", 10)
 BROWSER = getattr(_cfg, "BROWSER", "chromium")
 PARALLEL_JOBS = getattr(_cfg, "PARALLEL_JOBS", 3)
+PARKED_AFTER_RUN = getattr(_cfg, "PARKED_AFTER_RUN", "ask")
 
 
 # --------------------------------------------------------------------------- choosing jobs
@@ -266,7 +267,7 @@ def park_job(job: dict, link: str, ats: str, blocked: Blocked, number: int, tota
         record_parked(job["job_url"], blocked.reason, blocked.detail, apply_url=link, ats=ats)
     except Exception as e:   # a database hiccup must not stop the run; the job is simply offered again next time
         note(f"(couldn't save it to the parked list: {e})")
-    parked.append(dict(title=job["title"], company=job["company"], reason=blocked.reason, detail=blocked.detail))
+    parked.append(dict(title=job["title"], company=job["company"], reason=blocked.reason, detail=blocked.detail, job_url=job["job_url"]))
     notify(dict(number=number, total=total, title=job["title"], company=job["company"], state="parked",
                 reason=str(blocked), url=link))
 
@@ -287,6 +288,22 @@ def show_parked_summary(parked: list[dict]) -> None:
         waiting = len(parked)
     note(f"{waiting} job(s) are waiting on the parked list in total.")
 
+
+def offer_parked(parked: list[dict]) -> None:
+    """After a normal run: do the jobs parked in this run now? PARKED_AFTER_RUN = "ask" (y/n), "auto" (no question) or "never"."""
+    mode = str(PARKED_AFTER_RUN).strip().lower()
+    if not parked or mode == "never":
+        return
+    if mode != "auto":   # "ask", and anything unrecognised
+        print()
+        try:
+            reply = ask_you(f"Do the {len(parked)} job(s) parked in this run now? (y/n): ")
+        except (KeyboardInterrupt, EOFError):
+            reply = ""
+        if not reply.strip().lower().startswith("y"):
+            note("Okay. Run  python apply_jobs.py --parked  whenever you are ready.")
+            return
+    run_parked(len(parked), only={p["job_url"] for p in parked})
 
 # ----------------------------------------------------------------------------- one job
 
@@ -456,17 +473,25 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
     tag("APPLY", f"Opened {done} application(s).")
     show_parked_summary(parked)
 
+    offer_parked(parked)
 
-def run_parked(limit: int, url: str | None = None, list_only: bool = False) -> None:
+
+def run_parked(limit: int, url: str | None = None, list_only: bool = False, only: set | None = None) -> None:
     """apply_jobs.py --parked: the jobs set aside earlier, best score first. You are here, so a blocker asks you
     instead of parking the job again."""
     init_db()
     set_parking(False)
     jobs = sorted(parked_jobs(url), key=lambda j: -j["match_score"])   # ties stay oldest first
+
+    if only is not None:   # offer_parked: just the jobs parked in the run that just ended
+        jobs = [j for j in jobs if j["job_url"] in only]
+
     if not jobs:
         tag("APPLY", "That job isn't on the parked list." if url else "The parked list is empty.")
         return
+    
     print(section("PARKED"))
+    
     for job in jobs:
         print()
         job_head(f"{fmt_score(job['match_score'])}  {job['title']}", job["company"], job["apply_url"] or job["job_url"])

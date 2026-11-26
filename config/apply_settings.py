@@ -61,6 +61,7 @@ DRAFT_SELF_CHECK = True    # True = the model checks each draft against your res
 # ------------------------------------------------------------ jobs that need you
 PARK_BLOCKED = True   # True = a job that needs you (sign-in, no Apply button, unknown required question) is parked on a saved list and the run moves on; False = pause and ask you instead
 NOTIFY_BEEP = True    # one short beep when a job is parked (Windows only)
+PARKED_AFTER_RUN = "ask"   # when a normal run ends with jobs it parked: "ask" = ask y/n whether to do them now, "auto" = start them with no question, "never" = leave them for apply_jobs.py --parked
 
 from config.profile_loader import apply_overrides  # noqa: E402
 apply_overrides(globals())

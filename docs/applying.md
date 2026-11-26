@@ -116,13 +116,16 @@ When a job can't go on without you (no Apply button, a sign-in page, a required 
 tool parks it, prints `[PARKED 3/12] Job title - Company: reason`, beeps, and moves on to the next job.
 It never tries to get past a bot check.
 
+
 | Setting (`config/apply_settings.py`) | What it does |
 |---|---|
 | `PARK_BLOCKED = True` | Park blocked jobs. `False` = pause and ask you in the terminal, as before. |
 | `NOTIFY_BEEP = True` | One short beep when a job is parked (Windows only). |
+| `PARKED_AFTER_RUN = "ask"` | After a normal run that parked jobs: `"ask"` asks y/n whether to do them now, `"auto"` starts them with no question, `"never"` leaves them for `--parked`. Only the jobs parked in that run are offered. |
 
 Code: `applying/blocked.py` (the `Blocked` signal and the park-or-ask decision) and `applying/notify.py`
-(the notifier; add your own handler with `register()`). `apply_jobs.py --parked` opens each parked job fresh, best score first (`--top` caps how many; `--url <job>` picks one).
+(the notifier; add your own handler with `register()`). 
+`apply_jobs.py --parked` opens each parked job fresh, best score first (`--top` caps how many; `--url <job>` picks one).
 It checks the posting is still open (closed ones leave the list) and uses the saved link. Blockers ask you in the terminal
 instead of parking again. At the review prompt: `a` = I submitted it, `s` = skip for good (both leave the list),
 Enter = not yet (it stays parked). Ctrl+C stops and leaves the rest parked.
@@ -187,8 +190,10 @@ Street address and zip come from `contact.address` and `contact.zip`; "recent jo
 
 ### Parked jobs
 Jobs that need you (a sign-in, a bot check, a question with no answer) are set aside instead of stopping the run.
-    python apply_jobs.py --parked --list      # see what is waiting and why
-    python apply_jobs.py --parked --url <job> # just one parked job
+    python apply_jobs.py --parked               # open them, best score first
+    python apply_jobs.py --parked --top 2       # open at most 2
+    python apply_jobs.py --parked --list        # see what is waiting and why
+    python apply_jobs.py --parked --url <job>   # just one parked job
 
 ### Diagnostics
 
