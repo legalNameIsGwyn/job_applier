@@ -130,6 +130,11 @@ It checks the posting is still open (closed ones leave the list) and uses the sa
 instead of parking again. At the review prompt: `a` = I submitted it, `s` = skip for good (both leave the list),
 Enter = not yet (it stays parked). Ctrl+C stops and leaves the rest parked.
 
+**Old parked jobs.** At the start of every `--parked` run, a job parked longer than `DOC_WINDOW_DAYS` is checked
+(closed ones leave the list) and scored again. If it now scores below `MIN_SCORE` (or `--min-score`) it is marked
+`skipped` and leaves the list. `--parked --list` never does this.
+
+
 ### Which sites get filled
 
 | Kind | How |

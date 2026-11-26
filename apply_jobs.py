@@ -44,7 +44,7 @@ from config.apply_settings import (
     SLOW_MO_MS, WORKDAY_AUTO_ADVANCE, WORKDAY_MAX_STEPS,
 )
 import config.apply_settings as _cfg
-from config.settings import COVER_LETTER_FILENAME, DB_PATH, RESUME_FILENAME, MIN_SCORE
+from config.settings import COVER_LETTER_FILENAME, DB_PATH, DOC_WINDOW_DAYS, MAX_CONSECUTIVE_FAILURES, RESUME_FILENAME, MIN_SCORE
 from db.queries import clear_missing_link_markers, get_candidates, parked_jobs   # get_candidates: also imported by tools/summary.py
 from db.repo import init_db, record_application, record_parked, set_apply_url
 from db.session import active_profile_name, add_profile_arguments, apply_profile_arguments
@@ -476,7 +476,54 @@ def run(limit, min_score, days, include_opened=False, url=None, list_only=False,
     offer_parked(parked)
 
 
-def run_parked(limit: int, url: str | None = None, list_only: bool = False, only: set | None = None) -> None:
+def refresh_old_parked(jobs: list[dict], min_score: float) -> list[dict]:
+    """Start of a --parked run: a job parked longer than DOC_WINDOW_DAYS is checked still open, then scored again.
+    Closed ones leave the list as 'closed'; ones that now score below min_score leave it as 'skipped'.
+    Returns the jobs that stay, best score first."""
+    from datetime import timedelta
+    from db.models import utcnow
+    from db.queries import jobs_for_rescore
+    from tools.rescore import rescore
+
+    cutoff = utcnow() - timedelta(days=DOC_WINDOW_DAYS)
+    old = [j for j in jobs if j.get("parked_at") and j["parked_at"] < cutoff]
+    if not old:
+        return jobs
+    print()
+    tag("APPLY", f"{len(old)} parked job(s) are older than {DOC_WINDOW_DAYS} days: checking they are still open, then scoring them again.")
+    gone, streak = set(), 0
+    for job in old:
+        name = f"{job['title']} - {job['company']}"
+        link, ats, reason = target_for(job)
+        if reason:
+            continue   # it can't be opened anyway; the open step below says why
+        if CHECK_STILL_OPEN and check_open(link) == "closed":
+            decision("bad", f"{name}: closed, the posting is no longer open")
+            record_application(job["job_url"], "closed", apply_url=link, ats=ats)
+            gone.add(job["job_url"])
+            continue
+        if streak >= MAX_CONSECUTIVE_FAILURES:
+            continue   # the model keeps failing, so stop trying this run
+        if rescore(url=job["job_url"], assume_yes=True)["failed"]:
+            streak += 1
+            continue
+        streak = 0
+        row = next(iter(jobs_for_rescore(url=job["job_url"])), None)
+        if row is None or row["match_score"] is None:
+            continue   # no description to score from: left as it is
+        before, new = job["match_score"], row["match_score"]
+        if row["status"] == "filtered" or 0 <= new < min_score:
+            record_application(job["job_url"], "skipped", apply_url=link, ats=ats,
+                               note=f"rescored {new:g}, below {min_score:g}, after {DOC_WINDOW_DAYS}+ days parked")
+            decision("skip", f"{name}: score {before:g} -> {new:g}, below {min_score:g}: removed from the parked list")
+            gone.add(job["job_url"])
+        else:
+            job["match_score"] = new
+            decision("ok", f"{name}: still open, score {before:g} -> {new:g}")
+    return sorted((j for j in jobs if j["job_url"] not in gone), key=lambda j: -j["match_score"])
+
+
+def run_parked(limit: int, url: str | None = None, list_only: bool = False, only: set | None = None, min_score: float = MIN_SCORE) -> None:
     """apply_jobs.py --parked: the jobs set aside earlier, best score first. You are here, so a blocker asks you
     instead of parking the job again."""
     init_db()
@@ -490,8 +537,14 @@ def run_parked(limit: int, url: str | None = None, list_only: bool = False, only
         tag("APPLY", "That job isn't on the parked list." if url else "The parked list is empty.")
         return
     
+    if not list_only and limit > 0:
+        jobs = refresh_old_parked(jobs, min_score)   # old jobs: still open? still worth it?
+        if not jobs:
+            tag("APPLY", "No parked jobs left after the check.")
+            return
+        
     print(section("PARKED"))
-    
+
     for job in jobs:
         print()
         job_head(f"{fmt_score(job['match_score'])}  {job['title']}", job["company"], job["apply_url"] or job["job_url"])
@@ -599,7 +652,7 @@ if __name__ == "__main__":
         login(args.login)
         raise SystemExit
     if args.parked:
-        run_parked(args.top, args.url, args.list)
+        run_parked(args.top, args.url, args.list, min_score=args.min_score)
         raise SystemExit
     if args.recheck_links:
         init_db()
