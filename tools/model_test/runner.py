@@ -304,6 +304,9 @@ def main() -> None:
     d.add_argument("--out", metavar="DIR", help="where runs are kept (default: data/model_tests)")
     d.set_defaults(func=cmd_docs)
 
+    from tools.model_test import compare   # imported here because compare.py itself imports this module
+    compare.register(sub)
+
     args = parser.parse_args()
     if getattr(args, "repeat", 1) < 1:
         parser.error("--repeat must be at least 1")

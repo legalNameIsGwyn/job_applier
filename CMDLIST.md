@@ -165,6 +165,9 @@ Compare how different Ollama models write resumes and cover letters (more tests 
 Use `--posting-file FILE.json` for postings you provide (see `tools/model_test/example_postings.json`), `--repeat N` to see how much one model varies, `--run NAME` to resume.
 Results: `data/model_tests/<run>/`. Your jobs database and ratings are never touched.
 
+Compare results: `python -m tools.model_test compare --run NAME` (terminal) or add `--html` for a web page.
+`--blind` shows the models as A, B, C in a random order; letters are saved so they stay the same. `--reveal` prints the key.
+
 Postings: `--url` (scraped, from your database), `--linkedin-url LINK` (live LinkedIn posting), `--posting-file FILE.json` (your own).
 `--mode auto|bridge` needs each posting's gaps and compatibility. By default they are worked out once by `--ref-model` and shared by every model (`--compat frozen`); `--compat own` lets each model work out its own.
 
