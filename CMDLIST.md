@@ -165,6 +165,9 @@ Compare how different Ollama models write resumes and cover letters (more tests 
 Use `--posting-file FILE.json` for postings you provide (see `tools/model_test/example_postings.json`), `--repeat N` to see how much one model varies, `--run NAME` to resume.
 Results: `data/model_tests/<run>/`. Your jobs database and ratings are never touched.
 
+Postings: `--url` (scraped, from your database), `--linkedin-url LINK` (live LinkedIn posting), `--posting-file FILE.json` (your own).
+`--mode auto|bridge` needs each posting's gaps and compatibility. By default they are worked out once by `--ref-model` and shared by every model (`--compat frozen`); `--compat own` lets each model work out its own.
+
 ## Notes
 - **Ollama:** scoring and writing use a local model, set by `OLLAMA_MODEL` in `config\settings.py`. The environment variable of the same name overrides it for one PowerShell window only.
 - **Database:** `data\jobs_db.sqlite`. All state persists between runs. Jobs are stored once; each profile scores them separately.

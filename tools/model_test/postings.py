@@ -1,4 +1,4 @@
-"""Postings for the model tester: ones you scraped (read from your database) or ones you provide yourself.
+"""Postings for the model tester: real ones only. Scraped (from your database), a live LinkedIn link, or a file you write.
 
 Only the posting's text is used (title, company, location, description, link). Scores and compatibility in the
 database belong to one profile and one model, so they are not carried over: every model gets identical input.
@@ -6,8 +6,8 @@ database belong to one profile and one model, so they are not carried over: ever
 A posting file is JSON, a list of objects:
     [{"title": "Help Desk Technician", "company": "Acme", "location": "Norfolk, VA",
       "description": "full posting text...", "job_url": "https://... (optional)"}]
-Optional keys "gaps" (list of requirements you lack) and "compat_missing" are passed through, because bridge mode
-needs them.
+Optional keys "gaps" (list of requirements you lack) and "compat_missing" are used as given; otherwise bridge and
+auto mode get them from the frozen scoring step (see prep.py).
 """
 
 import hashlib
@@ -65,6 +65,56 @@ def from_database(urls: list[str]) -> list[dict]:
         if not job:
             raise ValueError(f"{url} is not in your jobs database. Run main.py first, or put it in a posting file.")
         found.append(clean(job, url))
+    return found
+
+
+def parse_linkedin_header(page: str) -> dict:
+    """title / company / location from LinkedIn's public posting page. Missing pieces come back as ''.
+
+    These selectors are LinkedIn's guest-page markup as I know it and could not be checked against the live site
+    from where this was written; if LinkedIn changes them the error from from_linkedin() says what was not found.
+    """
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(page, "html.parser")
+
+    def first(*selectors):
+        for sel in selectors:
+            node = soup.select_one(sel)
+            if node and node.get_text(strip=True):
+                return " ".join(node.get_text(" ", strip=True).split())
+        return ""
+
+    return {"title": first("h2.top-card-layout__title", "h1.top-card-layout__title", "h2.topcard__title"),
+            "company": first("a.topcard__org-name-link", ".topcard__org-name-link"),
+            "location": first("span.topcard__flat-asset")}
+
+
+def from_linkedin(urls: list[str]) -> list[dict]:
+    """Live LinkedIn postings, fetched with the scraper's own functions (core/scraper.py)."""
+    from core import scraper as s   # its private helpers are reused so the tester and main.py read pages the same way
+    session = s.requests.Session()
+    session.headers.update(s.REQUEST_HEADERS)
+    found = []
+    for url in urls:
+        job_id = s._linkedin_job_id(url)
+        if not job_id:
+            raise ValueError(f"{url} is not a linkedin.com/jobs/view/... link")
+        try:
+            page = s._fetch_linkedin_page(session, job_id)
+        except s._PostingGone:
+            raise ValueError(f"{url}: LinkedIn says this posting no longer exists") from None
+        except s.requests.RequestException as e:
+            raise ValueError(f"{url}: could not reach LinkedIn ({type(e).__name__}). Check your connection.") from None
+        except s._RateLimited:
+            raise ValueError("LinkedIn is rate limiting requests right now; wait a while and try again") from None
+        description = s._parse_linkedin_description(page)
+        head = parse_linkedin_header(page)
+        missing = [k for k, v in (("title", head["title"]), ("company", head["company"]), ("description", description)) if not v]
+        if missing:
+            raise ValueError(f"{url}: could not read the {', '.join(missing)} from the page. Put the posting in a "
+                             "--posting-file instead.")
+        found.append(clean({**head, "description": description,
+                            "job_url": f"https://www.linkedin.com/jobs/view/{job_id}"}, url))
     return found
 
 

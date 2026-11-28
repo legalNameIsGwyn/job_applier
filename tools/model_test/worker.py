@@ -24,6 +24,10 @@ def _run(args, out: Path, result: dict) -> None:
 
     job = json.loads(Path(args.job_file).read_text(encoding="utf-8"))
     resume = load_resume()
+    if args.compat == "own" and args.mode in ("bridge", "auto") and not (job.get("gaps") or job.get("compat_missing")):
+        from tools.model_test import prep   # this model works out its own gaps and compatibility first
+        result["prep"] = prep.compute(job)
+        job.update({k: result["prep"][k] for k in prep.KEYS})
     mode, why = am.choose_mode(job, args.mode)
     result.update(mode=mode, mode_why=why)
 
@@ -81,11 +85,12 @@ def main() -> None:
     p.add_argument("--job-file", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--mode", default="standard")
+    p.add_argument("--compat", choices=("frozen", "own"), default="frozen")
     args = p.parse_args()
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    result = {"profile": args.profile, "mode_requested": args.mode, "ok": False, "error": None}
+    result = {"profile": args.profile, "mode_requested": args.mode, "compat": args.compat, "ok": False, "error": None}
     started = time.time()
     try:
         _run(args, out, result)
