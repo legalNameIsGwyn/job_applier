@@ -306,6 +306,8 @@ def main() -> None:
 
     from tools.model_test import compare   # imported here because compare.py itself imports this module
     compare.register(sub)
+    from tools.model_test import rate
+    rate.register(sub)
 
     args = parser.parse_args()
     if getattr(args, "repeat", 1) < 1:

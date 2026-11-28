@@ -171,6 +171,9 @@ Compare results: `python -m tools.model_test compare --run NAME` (terminal) or a
 Postings: `--url` (scraped, from your database), `--linkedin-url LINK` (live LinkedIn posting), `--posting-file FILE.json` (your own).
 `--mode auto|bridge` needs each posting's gaps and compatibility. By default they are worked out once by `--ref-model` and shared by every model (`--compat frozen`); `--compat own` lets each model work out its own.
 
+Rate resumes and letters blind: `python -m tools.model_test rate --run NAME` (0-10 and an optional note each).
+Ratings are saved as you go; models are revealed with average scores when you stop. `--report` shows results without rating.
+
 ## Notes
 - **Ollama:** scoring and writing use a local model, set by `OLLAMA_MODEL` in `config\settings.py`. The environment variable of the same name overrides it for one PowerShell window only.
 - **Database:** `data\jobs_db.sqlite`. All state persists between runs. Jobs are stored once; each profile scores them separately.

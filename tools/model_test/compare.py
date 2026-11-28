@@ -123,8 +123,10 @@ def status_line(result: dict) -> str:
 # ---------------------------------------------------------------------------------------------------- terminal
 
 
-def cell_lines(title: str, result: dict, width: int, resume: str = "") -> list[str]:
-    lines = [title[:width], "=" * min(len(title), width)] + textwrap.wrap(status_line(result), width) + [""]
+def cell_lines(title: str, result: dict, width: int, resume: str = "", stats: bool = True) -> list[str]:
+    """stats=False leaves out time, mode and length, which can hint at the model (used while rating)."""
+    lines = [title[:width], "=" * min(len(title), width)]
+    lines += (textwrap.wrap(status_line(result), width) if stats else []) + [""]
     for heading, paragraphs in sections(result):
         lines.append(heading.upper()[:width])
         for p in paragraphs:
@@ -136,16 +138,16 @@ def cell_lines(title: str, result: dict, width: int, resume: str = "") -> list[s
     return lines
 
 
-def print_group(titles: list[str], results: list[dict], resumes: list[str], width: int) -> None:
+def print_group(titles: list[str], results: list[dict], resumes: list[str], width: int, stats: bool = True) -> None:
     n = len(titles)
     col = (width - 3 * (n - 1)) // n
     if n > 1 and col >= MIN_COLUMN:
-        blocks = [cell_lines(t, r, col, x) for t, r, x in zip(titles, results, resumes)]
+        blocks = [cell_lines(t, r, col, x, stats) for t, r, x in zip(titles, results, resumes)]
         for row in zip_rows(blocks):
             print(" | ".join(cell.ljust(col) for cell in row).rstrip())
     else:
         for t, r, x in zip(titles, results, resumes):
-            print("\n".join(cell_lines(t, r, width, x)))
+            print("\n".join(cell_lines(t, r, width, x, stats)))
             print("-" * width)
 
 
