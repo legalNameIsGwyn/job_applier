@@ -7,6 +7,8 @@ From the project folder:
     python -m tools.model_test docs ... --mode auto                # the compatibility score picks standard/bridge/boilerplate
     python -m tools.model_test docs ... --mode bridge --compat own # each model works out its own gaps (default: frozen)
     python -m tools.model_test docs ... --repeat 3          # same model, same input, 3 times: how much does it vary?
+    python -m tools.model_test score --profiles software --models qwen2.5:7b llama3.1:8b --url <job url>   # job score + compatibility
+    python -m tools.model_test compare --run NAME                   # look at any run side by side
     python -m tools.model_test docs ... --run friday        # name the run; run it again and finished cells are skipped
 
 Every combination of posting x profile x repeat is run by every model, one after another, through the program's own
@@ -138,14 +140,22 @@ def freeze(profile: str, posting: dict, run_dir: Path, ref_model: str, timeout: 
 
 
 def _row(cell: dict, r: dict) -> dict:
+    """One line of run.json for a cell: just enough to build the summary and to find the cell again."""
     return {"profile": cell["profile"], "model": cell["model"], "posting": cell["posting"], "repeat": cell["repeat"],
             "dir": str(cell["dir"].relative_to(cell["run_dir"])), "ok": bool(r.get("ok")), "error": r.get("error"),
             "seconds": r.get("seconds"), "mode": r.get("mode"), "summary_fallback": r.get("summary_fallback"),
             "warnings": len(r.get("warnings") or []), "letter_words": r.get("letter_words"),
-            "bridges": len(r.get("bridges") or []), "model_calls": len(r.get("ask_calls") or [])}
+            "bridges": len(r.get("bridges") or []), "model_calls": len(r.get("ask_calls") or []),
+            "match_score": r.get("match_score"), "compat_detail_pct": r.get("compat_detail_pct"),
+            "gap_count": len(r["gaps"]) if "gaps" in r else None, "dropped": bool(r.get("drop_reason"))}
 
 
-def summarize(rows: list[dict]) -> list[dict]:
+def _avg(rows: list[dict], key: str):
+    values = [r[key] for r in rows if r.get(key) is not None]
+    return round(sum(values) / len(values), 1) if values else None
+
+
+def summarize(rows: list[dict], kind: str = "docs") -> list[dict]:
     """One line per (profile, model)."""
     groups: dict = {}
     for r in rows:
@@ -153,31 +163,39 @@ def summarize(rows: list[dict]) -> list[dict]:
     out = []
     for (profile, model), g in groups.items():
         ok = [r for r in g if r["ok"]]
-        avg = lambda key: round(sum(r[key] or 0 for r in ok) / len(ok), 1) if ok else None
-        out.append({"profile": profile, "model": model, "cells": len(g), "ok": len(ok),
-                    "avg_seconds": avg("seconds"), "summary_fallbacks": sum(1 for r in ok if r["summary_fallback"]),
-                    "avg_warnings": avg("warnings"), "avg_letter_words": avg("letter_words")})
+        line = {"profile": profile, "model": model, "cells": len(g), "ok": len(ok), "avg_seconds": _avg(ok, "seconds")}
+        if kind == "score":
+            line.update(avg_score=_avg(ok, "match_score"), avg_detail_pct=_avg(ok, "compat_detail_pct"),
+                        avg_gaps=_avg(ok, "gap_count"), would_drop=sum(1 for r in ok if r["dropped"]))
+        else:
+            line.update(summary_fallbacks=sum(1 for r in ok if r["summary_fallback"]),
+                        avg_warnings=_avg(ok, "warnings"), avg_letter_words=_avg(ok, "letter_words"))
+        out.append(line)
     return out
 
 
-def print_summary(table: list[dict]) -> None:
-    cols = [("profile", "profile"), ("model", "model"), ("ok", "ok"), ("avg_seconds", "secs"),
-            ("summary_fallbacks", "summary fallbacks"), ("avg_warnings", "warnings"), ("avg_letter_words", "letter words")]
+COLUMNS = {
+    "docs": [("profile", "profile"), ("model", "model"), ("ok", "ok"), ("avg_seconds", "secs"),
+             ("summary_fallbacks", "summary fallbacks"), ("avg_warnings", "warnings"), ("avg_letter_words", "letter words")],
+    "score": [("profile", "profile"), ("model", "model"), ("ok", "ok"), ("avg_seconds", "secs"), ("avg_score", "avg score"),
+              ("avg_detail_pct", "avg detailed %"), ("avg_gaps", "avg gaps"), ("would_drop", "would drop")],
+}
+
+
+def print_summary(table: list[dict], kind: str = "docs") -> None:
+    cols = COLUMNS[kind]
     lines = [[h for _, h in cols]] + [[f"{r['ok']}/{r['cells']}" if k == "ok" else str(r[k]) for k, _ in cols] for r in table]
     widths = [max(len(line[i]) for line in lines) for i in range(len(cols))]
     for i, line in enumerate(lines):
-        print("  " + "  ".join(c.ljust(w) for c, w in zip(line, widths)))
+        print("  " + "  ".join(c.ljust(w) for c, w in zip(line, widths)).rstrip())
         if i == 0:
             print("  " + "  ".join("-" * w for w in widths))
 
 
-def cmd_docs(args) -> None:
-    models = list(dict.fromkeys(args.models))
-    profiles = list(dict.fromkeys(args.profiles))
-    check_profiles(profiles)
+# ----------------------------------------------------------------------------------- steps shared by docs and score
 
-    run_dir = Path(args.out or RUNS_DIR) / (args.run or datetime.now().strftime("%Y%m%d-%H%M%S"))
-    saved = run_dir / "postings.json"
+
+def load_postings(args, profiles: list[str], saved: Path) -> list[dict]:
     found = []
     try:
         for f in args.posting_file or []:
@@ -196,25 +214,91 @@ def cmd_docs(args) -> None:
     if not found:
         raise SystemExit("[MODEL TEST] Give at least one posting: --url JOB_URL (scraped), --linkedin-url LINK "
                          "or --posting-file FILE.json")
-    ref_model = args.ref_model or models[0]
-    check_models(models + ([ref_model] if ref_model not in models else []))
+    return found
 
+
+def start_run(run_dir: Path, found: list[dict], profiles: list[str], models: list[str], repeat: int) -> list[dict]:
+    """Save the postings into the run folder and list every cell to run."""
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "postings").mkdir(exist_ok=True)
-    saved.write_text(json.dumps(found, indent=1), encoding="utf-8")
+    (run_dir / "postings.json").write_text(json.dumps(found, indent=1), encoding="utf-8")
     for p in found:
         (run_dir / "postings" / f"{p['id']}.json").write_text(json.dumps(p, indent=1), encoding="utf-8")
-
     # Every model sees the same input before the next input starts, so an interrupted run still compares fairly.
-    cells = [{"profile": prof, "model": m, "posting": p["id"], "repeat": r, "run_dir": run_dir,
-              "dir": run_dir / prof / _safe(m) / p["id"] / f"r{r}"}
-             for p in found for prof in profiles for r in range(1, args.repeat + 1) for m in models]
+    return [{"profile": prof, "model": m, "posting": p["id"], "repeat": r, "run_dir": run_dir,
+             "dir": run_dir / prof / _safe(m) / p["id"] / f"r{r}"}
+            for p in found for prof in profiles for r in range(1, repeat + 1) for m in models]
+
+
+def execute(cells: list[dict], rows: list[dict], save, run_one, force: bool, skip_reason=None, note=None) -> None:
+    """Run every cell, skipping finished ones. Stops after 3 failures in a row or on Ctrl-C (rows keeps what finished)."""
+    failures_in_a_row = 0
+    try:
+        for n, cell in enumerate(cells, 1):
+            label = f"{cell['profile']} | {cell['model']} | {cell['posting']} | r{cell['repeat']}"
+            why = skip_reason(cell) if skip_reason else None
+            if why:
+                print(f"[{n}/{len(cells)}] not run ({why}): {label}")
+                rows.append(_row(cell, {"ok": False, "error": why}))
+                continue
+            previous = cell["dir"] / "result.json"
+            if previous.is_file() and not force:
+                old = json.loads(previous.read_text(encoding="utf-8"))
+                if old.get("ok"):
+                    print(f"[{n}/{len(cells)}] skipped (already done): {label}")
+                    rows.append(_row(cell, old))
+                    continue
+            print(f"[{n}/{len(cells)}] {label} ...", end=" ", flush=True)
+            started = time.time()
+            result = run_one(cell)
+            rows.append(_row(cell, result))
+            save(False)
+            if result.get("ok"):
+                failures_in_a_row = 0
+                print(f"ok {time.time() - started:.0f}s{note(result) if note else ''}")
+            else:
+                failures_in_a_row += 1
+                print(f"FAILED: {result.get('error')}")
+                if failures_in_a_row >= 3:
+                    print("[MODEL TEST] Stopped: 3 failures in a row. Is Ollama running? See log.txt in the failed folders.")
+                    return
+    except KeyboardInterrupt:
+        print("\n[MODEL TEST] Interrupted. Run the same command with --run " + cells[0]["run_dir"].name + " to continue.")
+
+
+def finish(run_dir: Path, rows: list[dict], cells: list[dict], kind: str) -> None:
+    table = summarize(rows, kind)
+    if table:
+        print()
+        print_summary(table, kind)
+    print(f"\n[MODEL TEST] Results: {run_dir}")
+    print(f"[MODEL TEST] To look at them: python -m tools.model_test compare --run {run_dir.name}"
+          + ("" if len(rows) == len(cells) else "   (the run is not finished; repeat the command to continue)"))
+
+
+def _run_dir(args) -> Path:
+    return Path(args.out or RUNS_DIR) / (args.run or datetime.now().strftime("%Y%m%d-%H%M%S"))
+
+
+# ------------------------------------------------------------------------------------------------------- commands
+
+
+def cmd_docs(args) -> None:
+    models = list(dict.fromkeys(args.models))
+    profiles = list(dict.fromkeys(args.profiles))
+    check_profiles(profiles)
+
+    run_dir = _run_dir(args)
+    found = load_postings(args, profiles, run_dir / "postings.json")
+    ref_model = args.ref_model or models[0]
+    check_models(models + ([ref_model] if ref_model not in models else []))
+    cells = start_run(run_dir, found, profiles, models, args.repeat)
     print(f"[MODEL TEST] run '{run_dir.name}': {len(found)} posting(s) x {len(profiles)} profile(s) x {args.repeat} repeat(s) "
           f"x {len(models)} model(s) = {len(cells)} cell(s), mode {args.mode}")
 
     scratch_db = run_dir / "_unused.sqlite"
-    rows, failures_in_a_row = [], 0
-    meta = {"run": run_dir.name, "started": datetime.now().isoformat(timespec="seconds"), "mode": args.mode,
+    rows: list[dict] = []
+    meta = {"run": run_dir.name, "kind": "docs", "started": datetime.now().isoformat(timespec="seconds"), "mode": args.mode,
             "profiles": profiles, "models": models, "repeat": args.repeat, "compat": args.compat, "ref_model": ref_model,
             "postings": [{k: p[k] for k in ("id", "title", "company", "job_url")} for p in found]}
 
@@ -237,48 +321,72 @@ def cmd_docs(args) -> None:
                         job.update({k: fr[k] for k in FROZEN_KEYS if k in fr})
                         print(f"ok ({fr.get('compat_detail_pct') if fr.get('compat_detail_pct') is not None else 'no detailed %'})")
                     else:
-                        frozen_failed[(prof, p["id"])] = fr.get("error")
+                        frozen_failed[(prof, p["id"])] = "frozen scoring failed: " + str(fr.get("error"))
                         print(f"FAILED: {fr.get('error')}")
                 jf.write_text(json.dumps(job, indent=1), encoding="utf-8")
                 job_files[(prof, p["id"])] = jf
-
-        for n, cell in enumerate(cells, 1):
-            label = f"{cell['profile']} | {cell['model']} | {cell['posting']} | r{cell['repeat']}"
-            previous = cell["dir"] / "result.json"
-            if (cell["profile"], cell["posting"]) in frozen_failed:
-                print(f"[{n}/{len(cells)}] not run (the frozen scoring step failed): {label}")
-                rows.append(_row(cell, {"ok": False, "error": "frozen scoring failed: " + str(frozen_failed[(cell["profile"], cell["posting"])])}))
-                continue
-            if previous.is_file() and not args.force:
-                old = json.loads(previous.read_text(encoding="utf-8"))
-                if old.get("ok"):
-                    print(f"[{n}/{len(cells)}] skipped (already done): {label}")
-                    rows.append(_row(cell, old))
-                    continue
-            print(f"[{n}/{len(cells)}] {label} ...", end=" ", flush=True)
-            started = time.time()
-            result = run_cell(cell, job_files[(cell["profile"], cell["posting"])], args.mode, args.compat, args.timeout, scratch_db)
-            rows.append(_row(cell, result))
-            save(False)
-            if result.get("ok"):
-                failures_in_a_row = 0
-                flag = "  (summary fell back to your original)" if result.get("summary_fallback") else ""
-                print(f"ok {time.time() - started:.0f}s{flag}")
-            else:
-                failures_in_a_row += 1
-                print(f"FAILED: {result.get('error')}")
-                if failures_in_a_row >= 3:
-                    print("[MODEL TEST] Stopped: 3 failures in a row. Is Ollama running? See log.txt in the failed folders.")
-                    break
     except KeyboardInterrupt:
         print("\n[MODEL TEST] Interrupted. Run the same command with --run " + run_dir.name + " to continue.")
-    save(len(rows) == len(cells))
+        return
 
-    table = summarize(rows)
-    if table:
-        print()
-        print_summary(table)
-    print(f"\n[MODEL TEST] Results: {run_dir}")
+    execute(cells, rows, save,
+            run_one=lambda c: run_cell(c, job_files[(c["profile"], c["posting"])], args.mode, args.compat, args.timeout, scratch_db),
+            force=args.force, skip_reason=lambda c: frozen_failed.get((c["profile"], c["posting"])),
+            note=lambda r: "  (summary fell back to your original)" if r.get("summary_fallback") else "")
+    save(len(rows) == len(cells))
+    finish(run_dir, rows, cells, "docs")
+
+
+def run_score_cell(cell: dict, job_file: Path, timeout: int, scratch_db: Path) -> dict:
+    out: Path = cell["dir"]
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "result.json").unlink(missing_ok=True)
+    code = _spawn("tools.model_test.prep", ["--profile", cell["profile"], "--job-file", str(job_file), "--out", str(out / "result.json")],
+                  cell["model"], out / "log.txt", timeout, scratch_db)
+    return _read_result(out / "result.json", code, timeout, cell["model"], cell["profile"])
+
+
+def cmd_score(args) -> None:
+    models = list(dict.fromkeys(args.models))
+    profiles = list(dict.fromkeys(args.profiles))
+    check_profiles(profiles)
+
+    run_dir = _run_dir(args)
+    found = load_postings(args, profiles, run_dir / "postings.json")
+    check_models(models)
+    cells = start_run(run_dir, found, profiles, models, args.repeat)
+    print(f"[MODEL TEST] scoring run '{run_dir.name}': {len(found)} posting(s) x {len(profiles)} profile(s) x {args.repeat} "
+          f"repeat(s) x {len(models)} model(s) = {len(cells)} cell(s)")
+
+    scratch_db = run_dir / "_unused.sqlite"
+    rows: list[dict] = []
+    meta = {"run": run_dir.name, "kind": "score", "started": datetime.now().isoformat(timespec="seconds"),
+            "profiles": profiles, "models": models, "repeat": args.repeat,
+            "postings": [{k: p[k] for k in ("id", "title", "company", "job_url")} for p in found]}
+
+    def save(done: bool) -> None:
+        (run_dir / "run.json").write_text(json.dumps({**meta, "finished": done, "cells": rows, "summary": summarize(rows, "score")},
+                                                      indent=1), encoding="utf-8")
+
+    execute(cells, rows, save,
+            run_one=lambda c: run_score_cell(c, run_dir / "postings" / f"{c['posting']}.json", args.timeout, scratch_db),
+            force=args.force,
+            note=lambda r: f"  score {r.get('match_score'):g}" if r.get("match_score") is not None else "")
+    save(len(rows) == len(cells))
+    finish(run_dir, rows, cells, "score")
+
+
+def _common_arguments(p) -> None:
+    p.add_argument("--profiles", nargs="+", required=True, metavar="NAME", help="profiles to test (each uses its own resume.json)")
+    p.add_argument("--models", nargs="+", required=True, metavar="MODEL", help="Ollama model names, e.g. qwen2.5:7b")
+    p.add_argument("--url", action="append", metavar="JOB_URL", help="a scraped posting from your database (repeatable)")
+    p.add_argument("--linkedin-url", action="append", metavar="LINK", help="a live linkedin.com/jobs/view/... posting (repeatable)")
+    p.add_argument("--posting-file", action="append", metavar="FILE", help="JSON file of postings you provide (repeatable)")
+    p.add_argument("--repeat", type=int, default=1, metavar="N", help="run each model N times on the same input")
+    p.add_argument("--run", metavar="NAME", help="name the run folder; re-running the same name skips finished cells")
+    p.add_argument("--timeout", type=int, default=900, metavar="SECONDS", help="give up on one cell after this long")
+    p.add_argument("--force", action="store_true", help="redo cells that already finished")
+    p.add_argument("--out", metavar="DIR", help="where runs are kept (default: data/model_tests)")
 
 
 def main() -> None:
@@ -287,27 +395,20 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     d = sub.add_parser("docs", allow_abbrev=False, help="generate resumes and cover letters with each model")
-    d.add_argument("--profiles", nargs="+", required=True, metavar="NAME", help="profiles to test (each uses its own resume.json)")
-    d.add_argument("--models", nargs="+", required=True, metavar="MODEL", help="Ollama model names, e.g. qwen2.5:7b")
-    d.add_argument("--url", action="append", metavar="JOB_URL", help="a scraped posting from your database (repeatable)")
-    d.add_argument("--linkedin-url", action="append", metavar="LINK", help="a live linkedin.com/jobs/view/... posting (repeatable)")
-    d.add_argument("--posting-file", action="append", metavar="FILE", help="JSON file of postings you provide (repeatable)")
+    _common_arguments(d)
     d.add_argument("--mode", choices=MODES, default="standard", help="tailoring mode for every cell (default: standard)")
     d.add_argument("--compat", choices=("frozen", "own"), default="frozen",
                    help="bridge/auto mode: frozen = gaps and compatibility worked out once by --ref-model (default); "
                         "own = each model works out its own")
     d.add_argument("--ref-model", metavar="MODEL", help="model that does the frozen scoring (default: the first of --models)")
-    d.add_argument("--repeat", type=int, default=1, metavar="N", help="run each model N times on the same input")
-    d.add_argument("--run", metavar="NAME", help="name the run folder; re-running the same name skips finished cells")
-    d.add_argument("--timeout", type=int, default=900, metavar="SECONDS", help="give up on one cell after this long")
-    d.add_argument("--force", action="store_true", help="redo cells that already finished")
-    d.add_argument("--out", metavar="DIR", help="where runs are kept (default: data/model_tests)")
     d.set_defaults(func=cmd_docs)
+
+    s = sub.add_parser("score", allow_abbrev=False, help="run the posting score and compatibility check with each model")
+    _common_arguments(s)
+    s.set_defaults(func=cmd_score)
 
     from tools.model_test import compare   # imported here because compare.py itself imports this module
     compare.register(sub)
-    from tools.model_test import rate
-    rate.register(sub)
 
     args = parser.parse_args()
     if getattr(args, "repeat", 1) < 1:

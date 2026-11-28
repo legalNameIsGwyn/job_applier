@@ -1,4 +1,5 @@
 """Look at what different models produced for the same posting and profile, side by side.
+Works on runs made by `docs` (resumes and letters) and by `score` (job score, gaps, compatibility).
 
 From the project folder:
     python -m tools.model_test compare --run friday                    # terminal, every posting and profile in the run
@@ -10,8 +11,8 @@ From the project folder:
     python -m tools.model_test compare --run friday --full             # also print each full resume
 
 Without --run the most recent run is used. Blind letters are drawn once per posting and profile and saved in the run
-folder (blind_key.json), so they stay the same every time you look, and rating (a later phase) uses the same letters.
-Times, warnings and word counts are still shown while blind; they can hint at which model it is.
+folder (blind_key.json), so they stay the same every time you look.
+Blind mode hides time, mode and length; the text itself and any warnings can still give a model away.
 """
 
 import html
@@ -93,10 +94,45 @@ def blind_labels(run_dir: Path, key: str, models: list[str]) -> dict:
 # --------------------------------------------------------------------------------------------- what a cell shows
 
 
+VERDICT = {"yes": "met", "partial": "partial", "no": "MISSING"}
+
+
+def score_sections(result: dict) -> list[tuple[str, list[str]]]:
+    """What the posting score and the compatibility check returned."""
+    out = []
+    score = f"{result.get('match_score'):g} / 10" if result.get("match_score") is not None else "(none)"
+    if result.get("blocked_reason"):
+        score += f"  (set to 0 before the model was asked: {result['blocked_reason']})"
+    out.append(("Job score", [score]))
+    out.append(("Skills it matched", [", ".join(result.get("matched_skills") or []) or "(none)"]))
+    out.append(("Gaps it listed", result.get("gaps") or ["(none)"]))
+    parts = []
+    if result.get("compat_pct") is not None:
+        parts.append(f"rough {result['compat_pct']:g}%")
+    if result.get("compat_detail_pct") is not None:
+        parts.append(f"detailed {result['compat_detail_pct']:g}%" + (" (capped by a missing hard requirement)" if result.get("compat_capped") else ""))
+    compat_lines = [" | ".join(parts) or "(not measured)"]
+    if result.get("match_score") is not None and result.get("min_score") and 0 < result["match_score"] < result["min_score"]:
+        compat_lines.append(f"(this score is below MIN_SCORE {result['min_score']:g}, where the program normally skips the "
+                            "detailed check; it was run here so the models can be compared)")
+    out.append(("Compatibility", compat_lines))
+    if result.get("requirements"):
+        out.append(("Requirements it found", [
+            f"{VERDICT.get(r.get('met'), r.get('met'))}: {r['text']} ({r.get('kind')}, {'required' if r.get('required') else 'preferred'})"
+            for r in result["requirements"]]))
+    if result.get("drop_reason"):
+        out.append(("The program would drop this job", [result["drop_reason"]]))
+    if result.get("compat_error"):
+        out.append(("Detailed check failed", [result["compat_error"]]))
+    return out
+
+
 def sections(result: dict) -> list[tuple[str, list[str]]]:
     """[(heading, paragraphs)] describing one result; the same content feeds the terminal and the HTML page."""
     if not result.get("ok"):
         return [("Error", [str(result.get("error"))])]
+    if result.get("kind") == "score":
+        return score_sections(result)
     t = result.get("tailored") or {}
     out = []
     if result.get("summary_fallback"):
@@ -117,6 +153,8 @@ def sections(result: dict) -> list[tuple[str, list[str]]]:
 def status_line(result: dict) -> str:
     if not result.get("ok"):
         return "FAILED"
+    if result.get("kind") == "score":
+        return f"ok | {result.get('seconds')}s"
     return f"ok | {result.get('seconds')}s | mode {result.get('mode')} | letter {result.get('letter_words')} words"
 
 
@@ -124,7 +162,7 @@ def status_line(result: dict) -> str:
 
 
 def cell_lines(title: str, result: dict, width: int, resume: str = "", stats: bool = True) -> list[str]:
-    """stats=False leaves out time, mode and length, which can hint at the model (used while rating)."""
+    """stats=False leaves out time, mode and length, which can hint at the model (used when blind)."""
     lines = [title[:width], "=" * min(len(title), width)]
     lines += (textwrap.wrap(status_line(result), width) if stats else []) + [""]
     for heading, paragraphs in sections(result):
@@ -185,11 +223,11 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 ui-monospace,Conso
 """
 
 
-def html_card(title: str, real: str | None, result: dict, resume: str) -> str:
+def html_card(title: str, real: str | None, result: dict, resume: str, stats: bool = True) -> str:
     esc = html.escape
     name = (f'<span class="model-name" data-label="{esc(title)}" data-real="{esc(real)}">{esc(title)}</span>'
             if real else esc(title))
-    parts = [f'<div class="card"><h4>{name}</h4><div class="status">{esc(status_line(result))}</div>']
+    parts = [f'<div class="card"><h4>{name}</h4><div class="status">{esc(status_line(result)) if stats else ""}</div>']
     for heading, paragraphs in sections(result):
         cls = "bad" if heading == "Error" else "warn" if heading == "Warnings" else ""
         parts.append(f"<h3>{esc(heading)}</h3>")
@@ -203,7 +241,7 @@ def build_html(run_dir: Path, meta: dict, groups: dict, rep: int, blind: bool) -
     esc = html.escape
     postings = {p["id"]: p for p in meta["postings"]}
     body = [f"<h1>Model comparison: {esc(meta['run'])}</h1>",
-            f'<p class="sub">mode {esc(str(meta["mode"]))} | repeat {rep} | '
+            f'<p class="sub">{esc("scoring" if meta.get("kind") == "score" else "mode " + str(meta.get("mode")))} | repeat {rep} | '
             f'{"blind: models are shown as letters" if blind else "models named"}</p>']
     if blind:
         body.append('<button id="reveal">Reveal models</button>')
@@ -213,10 +251,10 @@ def build_html(run_dir: Path, meta: dict, groups: dict, rep: int, blind: bool) -
                     f'<p class="sub">profile: {esc(profile)}</p><div class="grid">')
         labels = blind_labels(run_dir, f"{profile}|{posting_id}|r{rep}", [r["model"] for r in rows]) if blind else {}
         by_model = {m: letter for letter, m in labels.items()}
-        for row in sorted(rows, key=lambda r: by_model.get(r["model"], r["model"])):
+        for row in (sorted(rows, key=lambda r: by_model[r["model"]]) if blind else rows):
             result = load_result(run_dir, row)
             title = f"Model {by_model[row['model']]}" if blind else row["model"]
-            body.append(html_card(title, row["model"] if blind else None, result, resume_text(run_dir, row, result)))
+            body.append(html_card(title, row["model"] if blind else None, result, resume_text(run_dir, row, result), not blind))
         body.append("</div>")
     script = ("<script>var b=document.getElementById('reveal');if(b){b.onclick=function(){"
               "document.querySelectorAll('.model-name').forEach(function(e){e.textContent=e.dataset.label+' = '+e.dataset.real});"
@@ -261,7 +299,7 @@ def cmd_compare(args) -> None:
         results = [load_result(run_dir, r) for r in ordered]
         resumes = [resume_text(run_dir, r, res) if args.full else "" for r, res in zip(ordered, results)]
         titles = [f"Model {by_model[r['model']]}" if args.blind else r["model"] for r in ordered]
-        print_group(titles, results, resumes, width)
+        print_group(titles, results, resumes, width, stats=not args.blind)
         if args.blind:
             if args.reveal:
                 print("Key: " + ", ".join(f"{letter} = {m}" for letter, m in sorted(labels.items())))
